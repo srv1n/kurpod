@@ -1,0 +1,9 @@
+target/
+node_modules/
+dist/
+.env
+.env.local
+requirements.md
+*.blob
+brief.md
+.DS_Store
