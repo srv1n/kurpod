@@ -1,0 +1,31 @@
+[package]
+name = "encryption_core"
+version = "0.1.0"
+edition = "2021"
+description = "Core encryption and blob storage logic"
+
+[dependencies]
+# Use versions from workspace if possible, or specify compatible ones
+anyhow = { workspace = true }
+argon2 = { workspace = true }
+bincode = { workspace = true }
+chacha20poly1305 = { workspace = true }
+mime_guess = { workspace = true }
+rand = { version = "0.8.5", features = ["getrandom"] }
+rand_core = { workspace = true }
+serde = { version = "1.0", features = ["derive"] }
+log = "0.4.21" # Explicitly depend on log facade
+env_logger = "0.11" # Added for logging implementation (can be swapped)
+aes-gcm = "0.10.3"
+thiserror = "1.0.61"
+hex = "0.4.3"
+tauri = { version = "2.0.0-beta.20", optional = true, features = ["protocol-asset"] } # Match version used in enc_tauri potentially
+tauri-plugin-fs = { version = "2.0.0-beta.7", optional = true } # Match version used in enc_tauri potentially
+
+# Ensure features needed by the crate are enabled if using workspace versions
+# e.g., serde = { workspace = true, features = ["derive"] }
+
+[features]
+default = ["std_fs"]
+tauri_fs = ["dep:tauri", "dep:tauri-plugin-fs"]
+std_fs = [] 

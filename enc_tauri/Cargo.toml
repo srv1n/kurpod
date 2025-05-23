@@ -1,0 +1,20 @@
+[package]
+name = "enc_tauri"
+version = "0.1.0"
+edition = "2024"
+description = "Encrypted blob file viewer with Tauri"
+
+[dependencies]
+# Internal dependencies
+encryption_core = { path = "../encryption_core" }
+# enc = { path = ".." }
+
+# Shared dependencies from workspace
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+
+# Note: Tauri dependencies would be added here when implementing the Tauri app
+# tauri = { version = "2.0.0-beta", features = [...] }
+# tauri-plugin-fs = { ... }
+# tauri-plugin-dialog = { ... } 

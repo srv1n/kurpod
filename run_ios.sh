@@ -9,8 +9,10 @@ if [ ! -d "frontend/dist" ]; then
   (cd frontend && bun install && bun run build)
 fi
 
-# Build the whole workspace
-cargo build -p enc_server
+cd enc_tauri
+bun run tauri ios dev
+# # Build the whole workspace
+# cargo build -p enc_server
 
-# Run the server
-RUST_LOG=encryption_core=info,enc_server=info cargo run -p enc_server -- "$@" 
+# # Run the server
+# cargo run -p enc_server -- "$@" 
