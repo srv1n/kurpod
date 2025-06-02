@@ -4,16 +4,30 @@ import { Document, Page, pdfjs } from 'react-pdf';
 // Make sure to include the CSS for react-pdf for proper rendering
 import 'react-pdf/dist/esm/Page/AnnotationLayer.css';
 import 'react-pdf/dist/esm/Page/TextLayer.css';
+
+// Import our improved components
+import Button from './components/Button';
+import Input from './components/Input';
+import { Card, CardHeader, CardContent, CardFooter } from './components/Card';
+import LoadingSpinner from './components/LoadingSpinner';
  
-pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.js`;
+pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
     
-// Helper function to check server status    
-const checkServerStatus = async () => {   
+// Helper function to check server status and extract mode info    
+const checkServerStatus = async (setServerMode, setAvailableBlobs) => {   
   try { 
-    const res = await fetch('/api/status'); // Assuming a /api/status endpoint exists
+    const res = await fetch('/api/status');
     if (res.ok) { 
-      const data = await res.json(); 
-      return data.status === 'ready'; // Assuming the endpoint returns { status: 'ready' } or similar
+      const response = await res.json(); 
+      const data = response.data;
+      
+      // Set server mode and available blobs
+      setServerMode(data.mode);
+      if (data.mode === 'directory' && data.available_blobs) {
+        setAvailableBlobs(data.available_blobs);
+      }
+      
+      return data.status === 'ready';
     }
     // If status endpoint gives 401 or similar, it means not unlocked
     if (res.status === 401) {
@@ -31,6 +45,15 @@ function App() {
   const [mode, setMode] = useState('checking'); // 'checking', 'unlock','init','ready'
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [blobPath, setBlobPath] = useState(() => {
+    // Load last used blob path from localStorage (only used for single mode)
+    return localStorage.getItem('lastBlobPath') || 'data.blob';
+  });
+  // New state for blob mode handling
+  const [serverMode, setServerMode] = useState(null); // 'single' | 'directory'
+  const [availableBlobs, setAvailableBlobs] = useState([]);
+  const [selectedBlob, setSelectedBlob] = useState('');
+  const [newBlobName, setNewBlobName] = useState('');
   const [files, setFiles] = useState([]);
   const [uploadFiles, setUploadFiles] = useState([]);
   const [selected, setSelected] = useState(null);
@@ -52,6 +75,7 @@ function App() {
   const [hiddenPassword, setHiddenPassword] = useState('');
   const [confirmHiddenPassword, setConfirmHiddenPassword] = useState('');
   const [currentVolumeType, setCurrentVolumeType] = useState(null); // Add state to track volume type
+  const [isImageLoading, setIsImageLoading] = useState(false);
 
   useEffect(() => {
     if (mode === 'ready') refreshTree();
@@ -166,7 +190,7 @@ function App() {
 
   // Check login status on initial mount
   useEffect(() => {
-    checkServerStatus().then(isReady => {
+    checkServerStatus(setServerMode, setAvailableBlobs).then(isReady => {
       if (isReady) {
         setMode('ready');
       } else {
@@ -191,11 +215,26 @@ function App() {
     e.preventDefault();
     try {
       setIsUploading(true);
-      console.log('Trying to unlock with password:', password);
+      
+      // Prepare payload based on server mode
+      let payload = { password };
+      
+      if (serverMode === 'single') {
+        console.log('Trying to unlock single blob with password:', password);
+        // In single mode, no blob selection needed
+      } else if (serverMode === 'directory') {
+        if (!selectedBlob) {
+          alert('Please select a blob file');
+          return;
+        }
+        console.log('Trying to unlock blob:', selectedBlob, 'with password:', password);
+        payload.blob_name = selectedBlob;
+      }
+      
       const res = await fetch('/api/unlock', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password }),
+        body: JSON.stringify(payload),
       });
       console.log('Unlock response status:', res.status);
       
@@ -269,11 +308,23 @@ function App() {
         console.log('No hidden password provided (backend will generate one).');
       }
       
-      // Prepare payload with password_s and optional password_h
+      // Prepare payload based on server mode
       const initPayload = {
         password_s: password,
         password_h: hiddenPassword.trim() === '' ? null : hiddenPassword, // Send null if empty
       };
+      
+      if (serverMode === 'single') {
+        console.log('Initializing single blob');
+        // In single mode, no blob selection needed
+      } else if (serverMode === 'directory') {
+        if (!newBlobName.trim()) {
+          alert('Please enter a blob name');
+          return;
+        }
+        console.log('Initializing new blob:', newBlobName);
+        initPayload.blob_name = newBlobName.trim();
+      }
       
       let res = await fetch('/api/init', {
         method: 'POST',
@@ -296,33 +347,7 @@ function App() {
            setCurrentVolumeType('Unknown');
          }
         
-        // Proceed with optional initial upload (no changes needed here)
-        if (uploadFiles.length) {
-          // ... (existing upload logic) ...
-          console.log('Uploading initial files:', uploadFiles.length);
-          const fd = new FormData();
-          uploadFiles.forEach(f => {
-            console.log('Adding file to upload:', f.name, f.webkitRelativePath || '(no path)');
-            fd.append('file', f, f.webkitRelativePath || f.name);
-          });
-
-          // Use the batch upload endpoint even for initial uploads for consistency
-          const batchId = 'init-batch-' + Date.now();
-          fd.append('batch_id', batchId);
-          fd.append('is_final_batch', 'true'); // Single batch for initial upload
-
-          const up = await fetch(`/api/batch-upload?batch_id=${encodeURIComponent(batchId)}&is_final_batch=true`, {
-            method: 'POST',
-            body: fd
-          });
-
-          console.log('Initial Upload response status:', up.status);
-          if (!up.ok) {
-            const uploadError = await up.json().catch(() => ({}));
-            alert(`Initialization succeeded, but initial upload failed: ${uploadError.message || 'Unknown upload error'}`);
-            // Still proceed to 'ready' state as init itself worked
-          }
-        }
+        // Files can be uploaded after blob creation through the main interface
         
         setMode('ready');
         refreshTree(); // Refresh tree after successful init/upload
@@ -516,6 +541,7 @@ function App() {
     setSelected(path);
     if (path.match(/\.(png|jpe?g|gif|bmp|webp)$/i)) {
       setViewerType('image');
+      setIsImageLoading(true); // Start loading spinner
     } else if (path.endsWith('.pdf')) {
       setViewerType('pdf');
       setPageNumber(1);
@@ -634,6 +660,7 @@ function App() {
       // For images, open viewer and show gallery
       openViewer(path);
       setGalleryView(true);
+      setIsImageLoading(true); // Show spinner when opening gallery
       // Push state to handle back button
       window.history.pushState({ galleryActive: true }, "", window.location.pathname + window.location.search + "#gallery");
     } else {
@@ -693,238 +720,222 @@ function App() {
 
   // Loading/Checking state
   if (mode === 'checking') return (
-    <div className="flex items-center justify-center min-h-screen bg-gray-100">
-      <div className="flex items-center space-x-2 text-gray-500">
-        <svg className="animate-spin h-5 w-5 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-        </svg>
-        <span>Checking status...</span>
-      </div>
+    <div className="flex items-center justify-center min-h-screen bg-gray-50">
+      <LoadingSpinner size="lg" text="Checking status..." centered />
     </div>
   );
 
   // Authentication screens
   if (mode === 'unlock') return (
-    <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-4">
-      <div className="w-full max-w-md p-8 bg-white rounded-2xl shadow-lg transition-all duration-300">
-        <div className="mb-8 text-center">
+    <div className="flex items-center justify-center min-h-screen bg-gray-50 p-4">
+      <Card className="w-full max-w-md">
+        <CardHeader className="text-center">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-blue-50 mb-4">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-blue-500" viewBox="0 0 20 20" fill="currentColor">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-blue-600" viewBox="0 0 20 20" fill="currentColor">
               <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
             </svg>
           </div>
-          <h1 className="text-2xl font-bold text-gray-800">Welcome Back</h1>
-          <p className="text-gray-500">Unlock your secure storage to continue</p>
-        </div>
+          <h1 className="text-2xl font-bold text-gray-900">Welcome Back</h1>
+          <p className="text-gray-600 mt-2">Unlock your secure storage to continue</p>
+        </CardHeader>
         
-        <form onSubmit={handleUnlock} className="space-y-5">
-          <div>
-            <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">Password</label>
-            <input 
+        <CardContent>
+          <form onSubmit={handleUnlock} className="space-y-6">
+            {/* Conditional rendering based on server mode */}
+            {serverMode === 'directory' && (
+              <div className="space-y-3">
+                <label className="text-sm font-medium text-gray-900">Select Blob File</label>
+                <select
+                  value={selectedBlob}
+                  onChange={(e) => setSelectedBlob(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  required
+                >
+                  <option value="">Choose an existing blob file...</option>
+                  {availableBlobs.map(blob => (
+                    <option key={blob} value={blob}>{blob}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+            
+            {serverMode === 'single' && (
+              <div className="space-y-3">
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                  <div className="flex items-center gap-2">
+                    <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <p className="text-sm text-blue-700">Using pre-configured blob file</p>
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            <Input
               id="password"
               type="password" 
+              label="Password"
               placeholder="Enter your password" 
               value={password} 
               onChange={e => setPassword(e.target.value)} 
-              className="w-full px-4 py-3 border border-gray-200 rounded-xl bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
               required
             />
-          </div>
-          
-          <button 
-            type="submit" 
-            className="w-full py-3 px-4 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-medium rounded-xl shadow-sm hover:shadow transition-all duration-200 flex justify-center items-center"
-            disabled={isUploading}
-          >
-            {isUploading ? (
-              <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-              </svg>
-            ) : null}
-            Unlock Storage
-          </button>
-        </form>
+            
+            <Button 
+              type="submit" 
+              variant="primary"
+              size="lg"
+              className="w-full"
+              disabled={isUploading}
+              loading={isUploading}
+            >
+              Unlock Storage
+            </Button>
+          </form>
+        </CardContent>
         
-        <div className="mt-8 text-center">
-          <p className="text-sm text-gray-500">
+        <CardFooter className="text-center">
+          <p className="text-sm text-gray-600">
             Don't have storage yet?
           </p>
-          <button 
+          <Button 
+            variant="link"
             onClick={() => setMode('init')} 
-            className="mt-2 text-blue-600 hover:text-blue-800 font-medium transition-colors duration-200"
+            className="mt-2"
           >
             Create New Storage
-          </button>
-        </div>
-      </div>
+          </Button>
+        </CardFooter>
+      </Card>
     </div>
   );
 
   if (mode === 'init') return (
-    <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-4">
-      <div className="w-full max-w-md p-8 bg-white rounded-2xl shadow-lg transition-all duration-300">
-        <div className="mb-8 text-center">
+    <div className="flex items-center justify-center min-h-screen bg-gray-50 p-4">
+      <Card className="w-full max-w-lg">
+        <CardHeader className="text-center">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-green-50 mb-4">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-green-500" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M2.166 4.999A11.954 11.954 0 0010 1.944 11.954 11.954 0 0017.834 5c.11.65.166 1.32.166 2.001 0 5.225-3.34 9.67-8 11.317C5.34 16.67 2 12.225 2 7c0-.682.057-1.35.166-2.001zm11.541 3.708a1 1 0 010-1.414l3-3a1 1 0 011.414 0l3 3a1 1 0 01-1.414 1.414L11 5.414V13a1 1 0 11-2 0V5.414L7.707 6.707a1 1 0 01-1.414 0z"></path>
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-green-600" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-8.293l-3-3a1 1 0 00-1.414 0l-3 3a1 1 0 001.414 1.414L9 9.414V13a1 1 0 102 0V9.414l1.293 1.293a1 1 0 001.414-1.414z" clipRule="evenodd" />
             </svg>
           </div>
-          <h1 className="text-2xl font-bold text-gray-800 mb-1">Create Secure Storage</h1>
-          <p className="text-gray-500">Set up your encrypted storage space</p>
-        </div>
+          <h1 className="text-2xl font-bold text-gray-900">Create Secure Storage</h1>
+          <p className="text-gray-600 mt-2">Set up your encrypted storage space</p>
+        </CardHeader>
         
-        <form onSubmit={handleInit} className="space-y-5">
-          {/* Standard Password */}
-          <fieldset className="border border-gray-200 rounded-lg p-4 pt-2">
-            <legend className="text-sm font-medium text-gray-600 px-1">Standard (Decoy) Volume</legend>
-            <div className="space-y-4">
-              <div>
-                <label htmlFor="create-password-s" className="block text-sm font-medium text-gray-700 mb-1">Password*</label>
-                <input 
-                  id="create-password-s"
-                  type="password" 
-                  placeholder="Main storage password" 
-                  value={password} 
-                  onChange={e => setPassword(e.target.value)} 
-                  className="w-full px-4 py-3 border border-gray-200 rounded-xl bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
+        <CardContent>
+          <form onSubmit={handleInit} className="space-y-6">
+            {/* Conditional rendering based on server mode */}
+            {serverMode === 'directory' && (
+              <div className="space-y-3">
+                <label className="text-sm font-medium text-gray-900">New Blob Name</label>
+                <Input
+                  type="text"
+                  placeholder="e.g., personal.pdf, work-docs.txt, mydata.jpg"
+                  value={newBlobName}
+                  onChange={(e) => setNewBlobName(e.target.value)}
                   required
                 />
+                <p className="text-xs text-gray-500">
+                  Use any extension for privacy - your data will be encrypted regardless
+                </p>
               </div>
-              <div>
-                <label htmlFor="confirm-password-s" className="block text-sm font-medium text-gray-700 mb-1">Confirm Password*</label>
-                <input 
-                  id="confirm-password-s"
-                  type="password" 
-                  placeholder="Confirm main password" 
-                  value={confirmPassword} 
-                  onChange={e => setConfirmPassword(e.target.value)} 
-                  className="w-full px-4 py-3 border border-gray-200 rounded-xl bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
-                  required
-                />
+            )}
+            
+            {serverMode === 'single' && (
+              <div className="space-y-3">
+                <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                  <div className="flex items-center gap-2">
+                    <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <p className="text-sm text-green-700">Will create blob at pre-configured location</p>
+                  </div>
+                </div>
               </div>
-            </div>
-          </fieldset>
+            )}
+            
+            {/* Standard Password */}
+            <fieldset className="border border-gray-200 rounded-lg p-4 space-y-4">
+              <legend className="text-sm font-medium text-gray-700 px-2">Standard (Decoy) Volume</legend>
+              <Input
+                id="create-password-s"
+                type="password" 
+                label="Password"
+                placeholder="Main storage password" 
+                value={password} 
+                onChange={e => setPassword(e.target.value)} 
+                required
+              />
+              <Input
+                id="confirm-password-s"
+                type="password" 
+                label="Confirm Password"
+                placeholder="Confirm main password" 
+                value={confirmPassword} 
+                onChange={e => setConfirmPassword(e.target.value)} 
+                error={password && confirmPassword && password !== confirmPassword ? 'Passwords do not match' : ''}
+                required
+              />
+            </fieldset>
 
-          {/* Hidden Password (Optional) */}
-           <fieldset className="border border-gray-200 rounded-lg p-4 pt-2">
-            <legend className="text-sm font-medium text-gray-600 px-1">Hidden Volume (Optional)</legend>
-             <p className="text-xs text-gray-500 mb-3 px-1">Provides plausible deniability. Use a different password to access a separate hidden storage area.</p>
-            <div className="space-y-4">
-              <div>
-                <label htmlFor="create-password-h" className="block text-sm font-medium text-gray-700 mb-1">Hidden Password</label>
-                <input 
-                  id="create-password-h"
-                  type="password" 
-                  placeholder="Optional hidden password" 
-                  value={hiddenPassword} 
-                  onChange={e => setHiddenPassword(e.target.value)} 
-                  className="w-full px-4 py-3 border border-gray-200 rounded-xl bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all duration-200"
-                  // Not required
-                />
-              </div>
+            {/* Hidden Password (Optional) */}
+            <fieldset className="border border-orange-200 rounded-lg p-4 space-y-4">
+              <legend className="text-sm font-medium text-orange-700 px-2">Hidden Volume (Optional)</legend>
+              <p className="text-xs text-orange-600 -mt-2">Provides plausible deniability. Use a different password to access a separate hidden storage area.</p>
+              <Input
+                id="create-password-h"
+                type="password" 
+                label="Hidden Password"
+                placeholder="Optional hidden password" 
+                value={hiddenPassword} 
+                onChange={e => setHiddenPassword(e.target.value)} 
+                className="focus:ring-orange-500 focus:border-orange-500"
+              />
               {/* Show confirm field only if hidden password is being entered */}
               {hiddenPassword.trim() !== '' && (
-                <div>
-                  <label htmlFor="confirm-password-h" className="block text-sm font-medium text-gray-700 mb-1">Confirm Hidden Password</label>
-                  <input 
-                    id="confirm-password-h"
-                    type="password" 
-                    placeholder="Confirm hidden password" 
-                    value={confirmHiddenPassword} 
-                    onChange={e => setConfirmHiddenPassword(e.target.value)} 
-                    className="w-full px-4 py-3 border border-gray-200 rounded-xl bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all duration-200"
-                    required // Required only if hidden password is set
-                  />
-                </div>
+                <Input
+                  id="confirm-password-h"
+                  type="password" 
+                  label="Confirm Hidden Password"
+                  placeholder="Confirm hidden password" 
+                  value={confirmHiddenPassword} 
+                  onChange={e => setConfirmHiddenPassword(e.target.value)} 
+                  error={hiddenPassword && confirmHiddenPassword && hiddenPassword !== confirmHiddenPassword ? 'Hidden passwords do not match' : ''}
+                  className="focus:ring-orange-500 focus:border-orange-500"
+                  required
+                />
               )}
-            </div>
-          </fieldset>
+            </fieldset>
           
-          {/* Initial Files (Optional) - No changes needed here */}
-          <div className="pt-2">
-             <label htmlFor="file-upload" className="block text-sm font-medium text-gray-700 mb-3">Initial Files (optional)</label>
-             <div className="mt-1 flex flex-col space-y-4">
-               <div className="flex justify-center px-6 pt-5 pb-6 border-2 border-gray-200 border-dashed rounded-xl bg-gray-50 hover:bg-gray-100 transition-colors duration-200">
-                 <div className="space-y-2 text-center">
-                   <svg className="mx-auto h-12 w-12 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48" aria-hidden="true">
-                     <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                   </svg>
-                   <div className="flex text-sm text-gray-600 justify-center">
-                     <label htmlFor="file-upload" className="relative cursor-pointer rounded-md font-medium text-blue-600 hover:text-blue-500 focus-within:outline-none">
-                       <span>Upload files</span>
-                       <input
-                         id="file-upload"
-                         name="file-upload"
-                         type="file"
-                         multiple
-                         onChange={onFileSelect} // Use dedicated handler
-                         className="sr-only"
-                       />
-                     </label>
-                   </div>
-                 </div>
-               </div>
-               
-               <div className="flex justify-center px-6 pt-5 pb-6 border-2 border-gray-200 border-dashed rounded-xl bg-gray-50 hover:bg-gray-100 transition-colors duration-200">
-                 <div className="space-y-2 text-center">
-                   <svg xmlns="http://www.w3.org/2000/svg" className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-                   </svg>
-                   <div className="flex text-sm text-gray-600 justify-center">
-                     <label htmlFor="folder-upload" className="relative cursor-pointer rounded-md font-medium text-blue-600 hover:text-blue-500 focus-within:outline-none">
-                       <span>Upload folders</span>
-                       <input
-                         id="folder-upload"
-                         name="folder-upload"
-                         type="file"
-                         webkitdirectory="true"
-                         directory="true"
-                         multiple
-                         onChange={onFileSelect} // Use dedicated handler
-                         className="sr-only"
-                       />
-                     </label>
-                   </div>
-                 </div>
-               </div>
-                
-               <p className="text-xs text-gray-500 text-center">
-                 {uploadFiles.length > 0 
-                   ? `${uploadFiles.length} files selected` 
-                   : "Choose files to add to your secure storage"}
-               </p>
-             </div>
-           </div>
              
-          <button 
-            type="submit" 
-            className="w-full py-3 px-4 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-medium rounded-xl shadow-sm hover:shadow transition-all duration-200 flex justify-center items-center"
-            disabled={isUploading}
-          >
-            {isUploading ? (
-              <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-              </svg>
-            ) : null}
-            Create Secure Storage 
-          </button>
-        </form>
+            <Button 
+              type="submit" 
+              variant="primary"
+              size="lg"
+              className="w-full"
+              disabled={isUploading}
+              loading={isUploading}
+            >
+              Create Secure Storage 
+            </Button>
+          </form>
+        </CardContent>
         
-         <div className="mt-8 text-center">
-           <p className="text-sm text-gray-500">
-             Already have storage?
-           </p>
-           <button 
-             onClick={() => setMode('unlock')} 
-             className="mt-2 text-blue-600 hover:text-blue-800 font-medium transition-colors duration-200"
-           >
-             Unlock Existing Storage
-           </button>
-         </div>
-      </div>
+        <CardFooter className="text-center">
+          <p className="text-sm text-gray-600">
+            Already have storage?
+          </p>
+          <Button 
+            variant="link"
+            onClick={() => setMode('unlock')} 
+            className="mt-2"
+          >
+            Unlock Existing Storage
+          </Button>
+        </CardFooter>
+      </Card>
     </div>
   );
 
@@ -932,87 +943,97 @@ function App() {
   return (
     <div className="flex flex-col h-screen bg-gray-50 max-w-full overflow-hidden">
       {/* Header with upload and controls */}
-      <header className="bg-white border-b border-gray-200 shadow-sm p-2 sm:p-4 z-10">
-        <div className="container mx-auto flex flex-col sm:flex-row items-center justify-between gap-2 sm:gap-4 max-w-full">
-          <div className="flex items-center">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 sm:h-8 sm:w-8 text-blue-600 mr-2" viewBox="0 0 20 20" fill="currentColor">
+      <header className="bg-white border-b border-gray-200 shadow-sm px-4 py-3 z-10">
+        <div className="flex items-center justify-between max-w-full">
+          <div className="flex items-center min-w-0">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7 text-blue-600 mr-3 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
               <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
             </svg>
-            <h1 className="text-lg sm:text-xl font-semibold text-gray-800">Secure Storage</h1>
-            {/* Display current volume type */}
-            {currentVolumeType && (
-              <span 
-                className={`ml-2 text-xs font-medium px-2 py-0.5 rounded-full ${ 
-                  currentVolumeType === 'Hidden' 
-                    ? 'bg-purple-100 text-purple-700' 
-                    : 'bg-blue-100 text-blue-700' 
-                }`}
-              >
-                {currentVolumeType} Volume
-              </span>
-            )}
+            <div className="min-w-0">
+              <h1 className="text-xl font-semibold text-gray-900 truncate">Secure Storage</h1>
+              {/* Display current volume type */}
+              {currentVolumeType && (
+                <span 
+                  className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${ 
+                    currentVolumeType === 'Hidden' 
+                      ? 'bg-orange-100 text-orange-800' 
+                      : 'bg-blue-100 text-blue-800' 
+                  }`}
+                >
+                  {currentVolumeType} Volume
+                </span>
+              )}
+            </div>
           </div>
           
-          <div className="flex flex-wrap gap-1 sm:gap-2 items-center mt-2 sm:mt-0 w-full sm:w-auto justify-center sm:justify-end">
-            <div className="flex gap-1 sm:gap-2">
-              <label 
-                htmlFor="upload-files" 
-                className="cursor-pointer bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 font-medium py-1.5 sm:py-2 px-2 sm:px-4 rounded-lg shadow-sm transition-all duration-200 flex items-center text-sm sm:text-base"
+          <div className="flex items-center gap-2">
+            <label htmlFor="upload-files">
+              <Button 
+                variant="secondary" 
+                size="sm"
+                className="cursor-pointer"
+                as="span"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 sm:h-5 sm:w-5 mr-1 sm:mr-2 text-blue-500" viewBox="0 0 20 20" fill="currentColor">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2" viewBox="0 0 20 20" fill="currentColor">
                   <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM6.293 6.707a1 1 0 010-1.414l3-3a1 1 0 011.414 0l3 3a1 1 0 01-1.414 1.414L11 5.414V13a1 1 0 11-2 0V5.414L7.707 6.707a1 1 0 01-1.414 0z" clipRule="evenodd" />
                 </svg>
                 Upload
-                <input 
-                  id="upload-files"
-                  type="file" 
-                  multiple 
-                  onChange={handleUpload} 
-                  className="hidden"
-                />
-              </label>
-              
-              <label 
-                htmlFor="upload-folders" 
-                className="cursor-pointer bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 font-medium py-1.5 sm:py-2 px-2 sm:px-4 rounded-lg shadow-sm transition-all duration-200 flex items-center text-sm sm:text-base"
+              </Button>
+              <input 
+                id="upload-files"
+                type="file" 
+                multiple 
+                onChange={handleUpload} 
+                className="hidden"
+              />
+            </label>
+            
+            <label htmlFor="upload-folders">
+              <Button 
+                variant="secondary" 
+                size="sm"
+                className="cursor-pointer"
+                as="span"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 sm:h-5 sm:w-5 mr-1 sm:mr-2 text-blue-500" viewBox="0 0 20 20" fill="currentColor">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2" viewBox="0 0 20 20" fill="currentColor">
                   <path fillRule="evenodd" d="M2 6a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1H8a3 3 0 00-3 3v1.5a1.5 1.5 0 01-3 0V6z" clipRule="evenodd" />
                   <path d="M6 12a2 2 0 012-2h8a2 2 0 012 2v2a2 2 0 01-2 2H2h2a2 2 0 002-2v-2z" />
                 </svg>
                 Folders
-                <input 
-                  id="upload-folders"
-                  type="file" 
-                  webkitdirectory="true" 
-                  directory="true" 
-                  multiple 
-                  onChange={handleUpload} 
-                  className="hidden"
-                />
-              </label>
-            </div>
+              </Button>
+              <input 
+                id="upload-folders"
+                type="file" 
+                webkitdirectory="true" 
+                directory="true" 
+                multiple 
+                onChange={handleUpload} 
+                className="hidden"
+              />
+            </label>
             
-            <button 
-              onClick={refreshTree} 
-              className="bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 font-medium py-1.5 sm:py-2 px-2 sm:px-4 rounded-lg shadow-sm transition-all duration-200 flex items-center text-sm sm:text-base"
+            <Button 
+              variant="ghost" 
+              size="sm"
+              onClick={refreshTree}
+              title="Refresh files"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 sm:h-5 sm:w-5 mr-1 sm:mr-2 text-blue-500" viewBox="0 0 20 20" fill="currentColor">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
                 <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1z" clipRule="evenodd" />
               </svg>
-              Refresh
-            </button>
-            {/* Logout Button */}
-            <button 
+            </Button>
+            
+            <Button 
+              variant="ghost" 
+              size="sm"
               onClick={handleLogout}
-              className="bg-white border border-gray-200 hover:bg-red-50 text-red-600 font-medium py-1.5 sm:py-2 px-2 sm:px-4 rounded-lg shadow-sm transition-all duration-200 flex items-center text-sm sm:text-base"
+              className="text-red-600 hover:text-red-700 hover:bg-red-50"
               title="Logout and lock storage"
             >
-               <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 sm:h-5 sm:w-5 mr-1 sm:mr-2" viewBox="0 0 20 20" fill="currentColor">
-                 <path fillRule="evenodd" d="M3 3a1 1 0 00-1 1v12a1 1 0 102 0V4a1 1 0 00-1-1zm10.293 9.293a1 1 0 001.414 1.414l3-3a1 1 0 000-1.414l-3-3a1 1 0 10-1.414 1.414L14.586 9H7a1 1 0 100 2h7.586l-1.293 1.293z" clipRule="evenodd" />
-               </svg>
-              Logout
-            </button>
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M3 3a1 1 0 00-1 1v12a1 1 0 102 0V4a1 1 0 00-1-1zm10.293 9.293a1 1 0 001.414 1.414l3-3a1 1 0 000-1.414l-3-3a1 1 0 10-1.414 1.414L14.586 9H7a1 1 0 100 2h7.586l-1.293 1.293z" clipRule="evenodd" />
+              </svg>
+            </Button>
           </div>
         </div>
       </header>
@@ -1338,22 +1359,29 @@ function App() {
                 </button>
               </div>
               
-              <div className="flex-1 flex items-center justify-center w-full overflow-auto p-4 bg-white rounded-lg border border-gray-200 shadow-sm">
-                {/* Add loading indicator for image */}
+              <div className="flex-1 flex items-center justify-center w-full overflow-auto p-4 bg-white rounded-lg border border-gray-200 shadow-sm relative">
+                {/* Loading spinner */}
+                {isImageLoading && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-white/50 backdrop-blur-sm">
+                    <LoadingSpinner size="md" />
+                  </div>
+                )}
                 <img
                   key={selected} // Force re-render on selection change
                   src={`/api/download?path=${encodeURIComponent(selected)}`}
                   alt={selected.split('/').pop()} // Use filename for alt text
-                  className="max-h-full max-w-full object-contain rounded-md transition-transform duration-300 opacity-0 data-[loaded=true]:opacity-100"
+                  className="max-h-full max-w-full object-contain rounded-md transition-transform duration-300"
                   style={{ transform: `scale(${scale})` }}
-                  onClick={() => setGalleryView(true)}
-                  onLoad={(e) => e.target.setAttribute('data-loaded', 'true')} // Set attribute when loaded
+                  onClick={() => {
+                    setGalleryView(true);
+                    setIsImageLoading(true); // Show spinner when entering gallery
+                  }}
+                  onLoad={() => setIsImageLoading(false)} // Hide spinner when loaded
                   onError={(e) => { // Handle loading errors
                      console.error("Error loading image:", selected);
                      e.target.alt = "Error loading image";
-                     // Optionally display a placeholder or error icon
+                     setIsImageLoading(false); // Hide spinner on error too
                   }}
-                  data-loaded="false"
                 />
               </div>
             </div>
@@ -1445,25 +1473,25 @@ function App() {
                 className="flex-1 flex items-center justify-center w-full h-full max-w-full max-h-full overflow-hidden" 
                 onClick={(e) => e.stopPropagation()}
               >
+                {/* Loading spinner */}
+                {isImageLoading && (
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                    <div className="w-12 h-12 border-4 border-white/30 border-t-white rounded-full animate-spin"></div>
+                  </div>
+                )}
                 {/* Add key to force re-render, handle loading/error states */}
                 <img
                   key={selected} // Force re-render when 'selected' changes
                   src={`/api/download?path=${encodeURIComponent(selected)}`}
                   alt={selected.split('/').pop()} // Use filename for alt text
-                  className="block max-h-full max-w-full object-contain transition-opacity duration-300 ease-in-out opacity-0 data-[loaded=true]:opacity-100"
-                  onLoad={(e) => e.target.setAttribute('data-loaded', 'true')} // Set attribute when loaded
+                  className="block max-h-full max-w-full object-contain transition-opacity duration-300 ease-in-out"
+                  onLoad={() => setIsImageLoading(false)} // Hide spinner when loaded
                   onError={(e) => { // Handle loading errors
                      console.error("Error loading gallery image:", selected);
                      e.target.alt = "Error loading image";
-                     e.target.parentElement.classList.add('error-state'); // Add class for potential styling
+                     setIsImageLoading(false); // Hide spinner on error too
                   }}
-                   data-loaded="false" // Initial state for transition
                 />
-                
-                {/* Loading spinner */}
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                  <div className="w-12 h-12 border-4 border-blue-200 border-t-blue-500 rounded-full animate-spin opacity-0 transition-opacity duration-300 data-[loading=true]:opacity-100" data-loading={!document.querySelector('[data-loaded="true"]')}></div>
-                </div>
               </div>
             </div>
           )}

@@ -69,6 +69,7 @@ const DecoyScreen = ({ onTrigger }) => {
 
   const handlePlayTap = useCallback(() => {
     const newTapCount = tapCount + 1;
+    console.log(`[DecoyScreen] Tap detected. Count: ${newTapCount}`);
     setTapCount(newTapCount);
 
     const nextIsPlaying = !isPlaying;
@@ -82,7 +83,7 @@ const DecoyScreen = ({ onTrigger }) => {
 
 
     if (newTapCount === 3) {
-      console.log('Decoy trigger activated!');
+      console.log('[DecoyScreen] 3 taps detected! Triggering app reveal...');
       onTrigger();
       setTapCount(0);
       setIsPlaying(false); // Ensure it's visually paused
@@ -100,9 +101,9 @@ const DecoyScreen = ({ onTrigger }) => {
       clearTimeout(tapTimeoutRef.current);
     }
     tapTimeoutRef.current = setTimeout(() => {
+      console.log('[DecoyScreen] Tap timeout, resetting count to 0');
       setTapCount(0);
       // Don't reset isPlaying or progress on tap timeout
-      console.log('Tap timeout, count reset.');
       tapTimeoutRef.current = null;
     }, 1500);
 

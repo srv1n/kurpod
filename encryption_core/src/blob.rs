@@ -496,8 +496,33 @@ pub fn add_file(
     // 4. Update the corresponding header (Standard or Hidden) with the new metadata nonce/size
     update_header_metadata(&mut file, volume_type, &new_nonce, new_size)?;
 
-    // 5. Ensure changes are flushed
+    // 5. Ensure changes are flushed - with enhanced iOS handling
     file.sync_data()?; // Sync after metadata and header updates
+    
+    // Additional iOS-specific file handle management
+    #[cfg(target_os = "ios")]
+    {
+        use std::os::unix::fs::MetadataExt;
+        
+        // Force close and reopen the file handle to ensure iOS commits changes
+        drop(file);
+        
+        // Verify the file size has actually changed on disk
+        if let Ok(metadata) = std::fs::metadata(path) {
+            info!("iOS file verification: blob size on disk is {} bytes", metadata.size());
+        }
+        
+        // Reopen and sync one more time for iOS
+        let mut verify_file = OpenOptions::new().read(true).write(true).open(path)?;
+        verify_file.sync_all()?;
+    }
+    
+    #[cfg(not(target_os = "ios"))]
+    {
+        // Standard platform: just ensure sync_all is called
+        file.sync_all()?;
+    }
+    
     Ok(())
 }
 
@@ -551,7 +576,32 @@ pub fn remove_file(
     };
     let (new_nonce, new_size) = write_metadata_block(&mut file, key, metadata_map, metadata_offset)?;
     update_header_metadata(&mut file, volume_type, &new_nonce, new_size)?;
+    
+    // Enhanced iOS file sync handling
     file.sync_data()?; // Sync after metadata and header updates
+    
+    #[cfg(target_os = "ios")]
+    {
+        use std::os::unix::fs::MetadataExt;
+        
+        // Force close and reopen the file handle to ensure iOS commits changes
+        drop(file);
+        
+        // Verify the file size on disk for iOS
+        if let Ok(metadata) = std::fs::metadata(path) {
+            info!("iOS file verification after remove: blob size on disk is {} bytes", metadata.size());
+        }
+        
+        // Reopen and sync one more time for iOS
+        let mut verify_file = OpenOptions::new().read(true).write(true).open(path)?;
+        verify_file.sync_all()?;
+    }
+    
+    #[cfg(not(target_os = "ios"))]
+    {
+        file.sync_all()?;
+    }
+    
     Ok(true)
 }
 
@@ -592,7 +642,32 @@ pub fn rename_file(
         };
         let (new_nonce, new_size) = write_metadata_block(&mut file, key, metadata_map, metadata_offset)?;
         update_header_metadata(&mut file, volume_type, &new_nonce, new_size)?;
+        
+        // Enhanced iOS file sync handling
         file.sync_data()?;
+        
+        #[cfg(target_os = "ios")]
+        {
+            use std::os::unix::fs::MetadataExt;
+            
+            // Force close and reopen the file handle to ensure iOS commits changes
+            drop(file);
+            
+            // Verify the file size on disk for iOS
+            if let Ok(metadata) = std::fs::metadata(path) {
+                info!("iOS file verification after rename: blob size on disk is {} bytes", metadata.size());
+            }
+            
+            // Reopen and sync one more time for iOS
+            let mut verify_file = OpenOptions::new().read(true).write(true).open(path)?;
+            verify_file.sync_all()?;
+        }
+        
+        #[cfg(not(target_os = "ios"))]
+        {
+            file.sync_all()?;
+        }
+        
         return Ok(true); // Rename successful
     }
     Ok(false) // Old path not found
@@ -655,7 +730,32 @@ pub fn remove_folder(
     };
     let (new_nonce, new_size) = write_metadata_block(&mut file, key, metadata_map, metadata_offset)?;
     update_header_metadata(&mut file, volume_type, &new_nonce, new_size)?;
+    
+    // Enhanced iOS file sync handling
     file.sync_data()?; // Sync after metadata and header updates
+    
+    #[cfg(target_os = "ios")]
+    {
+        use std::os::unix::fs::MetadataExt;
+        
+        // Force close and reopen the file handle to ensure iOS commits changes
+        drop(file);
+        
+        // Verify the file size on disk for iOS
+        if let Ok(metadata) = std::fs::metadata(path) {
+            info!("iOS file verification after remove folder: blob size on disk is {} bytes", metadata.size());
+        }
+        
+        // Reopen and sync one more time for iOS
+        let mut verify_file = OpenOptions::new().read(true).write(true).open(path)?;
+        verify_file.sync_all()?;
+    }
+    
+    #[cfg(not(target_os = "ios"))]
+    {
+        file.sync_all()?;
+    }
+    
     Ok(true)
 }
 

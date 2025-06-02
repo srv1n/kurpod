@@ -39,6 +39,9 @@ const PdfIcon = (props) => (
 const ImageIcon = (props) => (
     <svg {...props} xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m9.75 9.75h-4.5a1.125 1.125 0 0 1-1.125-1.125v-4.5a1.125 1.125 0 0 1 1.125-1.125h4.5A1.125 1.125 0 0 1 19.5 9.75v4.5a1.125 1.125 0 0 1-1.125 1.125Zm-16.5 0h-4.5a1.125 1.125 0 0 1-1.125-1.125v-4.5a1.125 1.125 0 0 1 1.125-1.125h4.5A1.125 1.125 0 0 1 7.5 9.75v4.5a1.125 1.125 0 0 1-1.125 1.125Z" /></svg>
 );
+const VideoIcon = (props) => (
+    <svg {...props} xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="m15.75 10.5 4.72-4.72a.75.75 0 0 1 1.28.53v11.38a.75.75 0 0 1-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 0 0 2.25-2.25v-9a2.25 2.25 0 0 0-2.25-2.25h-9A2.25 2.25 0 0 0 2.25 7.5v9a2.25 2.25 0 0 0 2.25 2.25Z" /></svg>
+);
 const MoreVerticalIcon = (props) => (
     <svg {...props} xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M12 6.75a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5ZM12 12.75a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5ZM12 18.75a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5Z" /></svg>
 );
@@ -65,6 +68,9 @@ const FullscreenEnterIcon = (props) => (
 );
 const FullscreenExitIcon = (props) => (
     <svg {...props} xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M9 9V4.5M9 9H4.5M9 9 3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5M15 15l5.25 5.25" /></svg>
+);
+const HomeIcon = (props) => (
+    <svg {...props} xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="m2.25 12 8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" /></svg>
 );
 
 function ReadyScreen({
@@ -112,11 +118,21 @@ function ReadyScreen({
   setTemporaryMessage,
   uploadProgress,
   goBackToDecoy,
+  setSelected,
+  setViewerType,
+  setFileDataUrl,
 }) {
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
   const fileInputRef = useRef(null);
   const folderInputRef = useRef(null);
+
+  // Handler to close viewer and return to file list
+  const handleBackToFileList = useCallback(() => {
+    setSelected(null);
+    setViewerType(null);
+    setFileDataUrl(null);
+  }, [setSelected, setViewerType, setFileDataUrl]);
 
   const openLightbox = useCallback(() => {
     const idx = folderImages.findIndex(f => f.path === selected);
@@ -195,12 +211,12 @@ function ReadyScreen({
 
   // --- Breadcrumb Data --- 
   const breadcrumbItems = useMemo(() => {
-    const items = [{ path: '', name: 'Vault Root' }];
+    const items = [{ path: '', name: 'Vault Root', isHome: true }];
     if (currentFolder) {
       let currentPath = '';
       currentFolder.split('/').forEach(part => {
         currentPath = currentPath ? `${currentPath}/${part}` : part;
-        items.push({ path: currentPath, name: part });
+        items.push({ path: currentPath, name: part, isHome: false });
       });
     }
     return items;
@@ -233,6 +249,8 @@ function ReadyScreen({
       icon = <FolderIcon className="w-5 h-5 text-blue-500 flex-shrink-0" />;
     } else if (path.match(/\.(png|jpe?g|gif|bmp|webp)$/i)) {
       icon = <ImageIcon className="w-5 h-5 text-green-500 flex-shrink-0" />;
+    } else if (path.match(/\.(mp4|avi|mkv|mov|wmv|flv|webm|m4v|3gp|ogv)$/i)) {
+      icon = <VideoIcon className="w-5 h-5 text-purple-500 flex-shrink-0" />;
     } else if (path.endsWith('.pdf')) {
       icon = <PdfIcon className="w-5 h-5 text-red-500 flex-shrink-0" />;
     } else {
@@ -286,9 +304,19 @@ function ReadyScreen({
                   {index > 0 && <BreadcrumbSeparator />} 
                   <BreadcrumbItem>
                     {index === breadcrumbItems.length - 1 ? (
-                       <BreadcrumbPage className="font-medium truncate">{item.name}</BreadcrumbPage>
+                       <BreadcrumbPage className="font-medium truncate flex items-center gap-1">
+                         {item.isHome && (
+                           <HomeIcon 
+                             className="w-4 h-4 cursor-pointer hover:text-blue-600 transition-colors" 
+                             onClick={(e) => { e.preventDefault(); e.stopPropagation(); navigateToFolder(''); }}
+                             title="Go to Vault Root"
+                           />
+                         )}
+                         {item.name}
+                       </BreadcrumbPage>
                     ) : (
-                       <BreadcrumbLink href="#" onClick={(e) => { e.preventDefault(); navigateToFolder(item.path); }} className="truncate">
+                       <BreadcrumbLink href="#" onClick={(e) => { e.preventDefault(); navigateToFolder(item.path); }} className="truncate flex items-center gap-1">
+                         {item.isHome && <HomeIcon className="w-4 h-4" />}
                          {item.name}
                        </BreadcrumbLink>
                     )}
@@ -299,11 +327,11 @@ function ReadyScreen({
           </Breadcrumb>
 
          <div className="flex items-center gap-2 flex-shrink-0">
-              <span className={`text-xs px-2 py-0.5 rounded ${currentVolumeType === 'Hidden' ? 'bg-orange-100 text-orange-800 dark:bg-orange-900/50 dark:text-orange-300' : 'bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300'}`}> 
-                 {currentVolumeType || 'Unknown'}
+              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${currentVolumeType === 'Hidden' ? 'bg-orange-100 text-orange-800' : 'bg-blue-100 text-blue-800'}`}> 
+                 {currentVolumeType || 'Unknown'} Volume
               </span> 
              <Button size="sm" variant="ghost" onClick={refreshFileList} disabled={isUploading} title="Refresh">
-                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m-18 3.75h16.5a1.5 1.5 0 0 0 1.5-1.5V6a1.5 1.5 0 0 0-1.5-1.5H3.75A1.5 1.5 0 0 0 2.25 6v12a1.5 1.5 0 0 0 1.5 1.5Z" /></svg>
+                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={`w-4 h-4 ${isUploading ? 'animate-spin' : ''}`}><path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m-18 3.75h16.5a1.5 1.5 0 0 0 1.5-1.5V6a1.5 1.5 0 0 0-1.5-1.5H3.75A1.5 1.5 0 0 0 2.25 6v12a1.5 1.5 0 0 0 1.5 1.5Z" /></svg>
              </Button>
              <Button size="sm" variant="ghost" onClick={handleLogout} disabled={isUploading} title="Logout">
                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15m3 0 3-3m0 0-3-3m3 3H9" /></svg>
@@ -442,14 +470,30 @@ function ReadyScreen({
              }
              {/* Image Viewer */} 
              {selected && !loadingDataUrl && fileDataUrl && viewerType === 'image' && (
-                 <div className="flex flex-col items-center justify-center w-full h-full p-2">
-                     <img
-                         src={fileDataUrl}
-                         alt={selected.split('/').pop() || 'Gallery image'}
-                         className="max-w-full max-h-[calc(100%-40px)] object-contain cursor-pointer shadow-lg rounded"
-                         onClick={() => setGalleryView(true)}
-                     />
-                     <p className="text-white text-sm mt-2 truncate max-w-[80%]">{selected.split('/').pop()}</p>
+                 <div className="flex flex-col w-full h-full relative">
+                     {/* Mobile back button */}
+                     <div className="md:hidden absolute top-2 left-2 z-10">
+                         <Button
+                             variant="secondary"
+                             size="sm"
+                             onClick={handleBackToFileList}
+                             className="bg-black/20 hover:bg-black/40 text-white backdrop-blur-sm"
+                         >
+                             <BackIcon className="w-4 h-4 mr-1" />
+                             Back
+                         </Button>
+                     </div>
+                     
+                     {/* Image container */}
+                     <div className="flex-1 flex flex-col items-center justify-center p-2">
+                         <img
+                             src={fileDataUrl}
+                             alt={selected.split('/').pop() || 'Gallery image'}
+                             className="max-w-full max-h-[calc(100%-60px)] object-contain cursor-pointer shadow-lg rounded"
+                             onClick={() => setGalleryView(true)}
+                         />
+                         <p className="text-foreground text-sm mt-2 truncate max-w-[80%]">{selected.split('/').pop()}</p>
+                     </div>
                  </div>
              )}
              {/* PDF Viewer */} 
@@ -457,7 +501,20 @@ function ReadyScreen({
                  <>
                    {/* Inline PDF View */} 
                    {!pdfFullscreen && (
-                     <div className="w-full h-full flex flex-col items-center justify-start">
+                     <div className="w-full h-full flex flex-col items-center justify-start relative">
+                       {/* Mobile back button for PDF */}
+                       <div className="md:hidden absolute top-2 left-2 z-20">
+                           <Button
+                               variant="secondary"
+                               size="sm"
+                               onClick={handleBackToFileList}
+                               className="bg-background/80 hover:bg-background/90 backdrop-blur-sm"
+                           >
+                               <BackIcon className="w-4 h-4 mr-1" />
+                               Back
+                           </Button>
+                       </div>
+                       
                        <p className="mb-2 text-foreground font-medium text-center w-full truncate px-4" title={selected.split('/').pop()}>
                            {selected.split('/').pop()}
                        </p>
@@ -531,6 +588,36 @@ function ReadyScreen({
                    )}
                  </>
                )}
+             {/* Video Viewer */}
+             {selected && !loadingDataUrl && fileDataUrl && viewerType === 'video' && (
+                 <div className="flex flex-col w-full h-full relative">
+                     {/* Mobile back button */}
+                     <div className="md:hidden absolute top-2 left-2 z-10">
+                         <Button
+                             variant="secondary"
+                             size="sm"
+                             onClick={handleBackToFileList}
+                             className="bg-black/20 hover:bg-black/40 text-white backdrop-blur-sm"
+                         >
+                             <BackIcon className="w-4 h-4 mr-1" />
+                             Back
+                         </Button>
+                     </div>
+                     
+                     {/* Video container */}
+                     <div className="flex-1 flex flex-col items-center justify-center p-2">
+                         <video
+                             src={fileDataUrl}
+                             controls
+                             className="max-w-full max-h-[calc(100%-60px)] object-contain shadow-lg rounded"
+                             controlsList="nodownload"
+                         >
+                             Your browser does not support the video tag.
+                         </video>
+                         <p className="text-foreground text-sm mt-2 truncate max-w-[80%]">{selected.split('/').pop()}</p>
+                     </div>
+                 </div>
+             )}
              {/* Other File Type Placeholder */} 
              {selected && viewerType === 'other' && !loadingDataUrl && (
                  <div className="text-center text-muted-foreground flex flex-col items-center gap-4 p-6">

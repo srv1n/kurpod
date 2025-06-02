@@ -1,5 +1,4 @@
 import React from 'react';
-import { useRef } from 'react'; // Add useRef
 import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
 import { Loader2 } from "lucide-react"; // Added for loading state
@@ -35,57 +34,99 @@ function InitScreen({
   blobPath,
   selectBlobFile,
   handleInit,
-  uploadFiles,
-  onFileSelectForInit,
+  // uploadFiles, // Removed - no longer used
+  // onFileSelectForInit, // Removed - no longer used
   isUploading,
   setMode,
+  serverMode,
+  newBlobName,
+  setNewBlobName,
   // Pass error/message props if you want local display
 }) {
 
   const [showHiddenFields, setShowHiddenFields] = React.useState(false);
-  const fileInputRef = useRef(null); // Add ref for file input
-
-  // Handler to trigger file input click
-  const handleFileInputClick = () => {
-    fileInputRef.current?.click();
-  };
 
   // TODO: Replace this placeholder with HeroUI components
   return (
     <div className="flex items-center justify-center min-h-screen p-4 overflow-y-auto">
       <Card className="w-full max-w-xl p-4">
-        <CardHeader className="flex flex-col items-center gap-2 pb-4">
-           <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary/10 mb-2">
+        <CardHeader className="flex flex-col items-center gap-2 pb-4 text-center">
+           <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-green-50 mb-2">
              {/* Replace with a suitable icon for creation/init */}
-             <AddIcon className="h-8 w-8 text-primary" />
+             <AddIcon className="h-8 w-8 text-green-600" />
            </div>
-           <h1 className="text-2xl font-bold">Create New Storage</h1>
-           <p className="text-default-500">Set up your secure blob file</p>
+           <h1 className="text-2xl font-bold text-gray-900">Create New Storage</h1>
+           <p className="text-gray-600">Set up your secure blob file</p>
         </CardHeader>
         <CardContent className="py-4">
             <form onSubmit={handleInit} className="flex flex-col gap-4">
-              {/* Blob Path Input */}
-              <div className="space-y-1">
-                <Label htmlFor="initBlobPath">Blob File Location</Label>
-                <div className="flex items-center space-x-2">
-                   <Input
-                     id="initBlobPath"
-                     readOnly
-                     placeholder="Select where to save the blob file"
-                     value={blobPath}
-                     className="flex-grow"
-                   />
-                   <Button
-                     type="button"
-                     variant="outline"
-                     onClick={selectBlobFile}
-                     size="sm"
-                   >
-                     Select Location...
-                   </Button>
-                 </div>
-                 <p className="text-sm text-muted-foreground">This file will store your encrypted data.</p>
-               </div>
+              {/* Conditional rendering based on server mode */}
+              {serverMode === 'directory' && (
+                <div className="space-y-2">
+                  <Label htmlFor="newBlobName">New Blob Name</Label>
+                  <Input
+                    id="newBlobName"
+                    type="text"
+                    placeholder="e.g., personal.pdf, work-docs.txt, mydata.jpg"
+                    value={newBlobName}
+                    onChange={(e) => setNewBlobName(e.target.value)}
+                    required
+                  />
+                  <p className="text-sm text-muted-foreground">
+                    Use any extension for privacy - your data will be encrypted regardless
+                  </p>
+                </div>
+              )}
+              
+              {serverMode === 'desktop' && (
+                <div className="space-y-2">
+                  <Label htmlFor="initBlobPath">Blob File Location</Label>
+                  {blobPath ? (
+                    <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-lg">
+                      <div className="flex items-center gap-2 flex-1 min-w-0">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-green-600 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
+                          <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM6.293 6.707a1 1 0 010-1.414l3-3a1 1 0 011.414 0l3 3a1 1 0 01-1.414 1.414L9 5.414V13a1 1 0 11-2 0V5.414L5.707 6.707a1 1 0 01-1.414 0z" clipRule="evenodd" />
+                        </svg>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-xs text-green-600 font-medium">Selected location:</div>
+                          <div className="text-sm text-gray-700 truncate" title={blobPath}>
+                            {blobPath.split('/').pop() || blobPath}
+                          </div>
+                          <div className="text-xs text-gray-500 truncate" title={blobPath}>
+                            {blobPath.split('/').slice(0, -1).join('/') || 'Root folder'}
+                          </div>
+                        </div>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={selectBlobFile}
+                        className="text-green-600 hover:text-green-800"
+                      >
+                        Change
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 p-3 border-2 border-dashed border-gray-300 rounded-lg hover:border-green-400 transition-colors">
+                      <div className="flex items-center gap-2 flex-1 text-gray-500">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                          <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM6.293 6.707a1 1 0 010-1.414l3-3a1 1 0 011.414 0l3 3a1 1 0 01-1.414 1.414L9 5.414V13a1 1 0 11-2 0V5.414L5.707 6.707a1 1 0 01-1.414 0z" clipRule="evenodd" />
+                        </svg>
+                        <span className="text-sm">No save location selected</span>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="default"
+                        onClick={selectBlobFile}
+                      >
+                        Choose Location
+                      </Button>
+                    </div>
+                  )}
+                  <p className="text-sm text-muted-foreground">This file will store your encrypted data.</p>
+                </div>
+              )}
 
               {/* Standard Password */}
                <div className="space-y-1">
@@ -131,7 +172,7 @@ function InitScreen({
 
               {showHiddenFields && (
                  <div className="flex flex-col gap-4 pl-6 mt-2">
-                   <p className="text-sm text-orange-600 dark:text-orange-400 -mb-2">
+                   <p className="text-sm text-orange-600 -mb-2">
                        Hidden volumes provide plausible deniability. Use a different password.
                    </p>
                     <div className="space-y-1">
@@ -167,42 +208,11 @@ function InitScreen({
 
                <div className="pt-6"></div>
 
-              {/* Initial File Upload (Optional) */}
-              <div className="pt-2 space-y-1">
-                <Label className="block text-sm font-medium mb-1">Add Initial Files (Optional):</Label>
-                 {/* Keep Label separate and associated via htmlFor if needed, but the button acts as the primary trigger visually */}
-                <input
-                  ref={fileInputRef} // Assign the ref
-                  id="initFiles"
-                  type="file"
-                  multiple
-                  onChange={onFileSelectForInit}
-                  className="hidden"
-                  webkitdirectory="true"
-                  // @ts-ignore
-                  directory="true"
-                />
-                 {/* Separate Button to trigger the input */}
-                <Button
-                  type="button" // Important: prevent form submission
-                  variant="outline"
-                  className="w-full"
-                  onClick={handleFileInputClick} // Trigger click handler
-                >
-                   Choose Files/Folder...
-                </Button>
-                {uploadFiles.length > 0 && (
-                    <p className="text-xs text-muted-foreground mt-1 pl-1">{uploadFiles.length} file(s)/folder(s) selected for initial upload.</p>
-                )}
-              </div>
-
-               <div className="pt-8"></div>
-
               <Button
                 type="submit"
                 className="w-full"
                 size="lg"
-                disabled={isUploading || !blobPath || !password || password !== confirmPassword || (showHiddenFields && (!hiddenPassword || hiddenPassword !== confirmHiddenPassword || password === hiddenPassword))}
+                disabled={isUploading || (serverMode === 'desktop' && !blobPath) || (serverMode === 'directory' && !newBlobName.trim()) || !password || password !== confirmPassword || (showHiddenFields && (hiddenPassword.trim() !== '' && (hiddenPassword !== confirmHiddenPassword || password === hiddenPassword)))}
               >
                 {isUploading ? (
                    <>
@@ -215,12 +225,13 @@ function InitScreen({
               </Button>
             </form>
         </CardContent>
-        <CardFooter className="flex flex-col items-center pt-4 mt-4 border-t">
-            <p className="text-sm text-muted-foreground">Already have storage?</p>
+        <CardFooter className="flex flex-col items-center pt-4 mt-4 border-t text-center">
+            <p className="text-sm text-gray-600">Already have storage?</p>
              <Button
-                variant="link"
+                variant="ghost"
                 size="sm"
                 onClick={() => { setMode('unlock'); /* Add necessary state resets */ }}
+                className="mt-2 text-blue-600 hover:text-blue-800"
             >
                 Unlock Existing Storage
             </Button>

@@ -1,5 +1,5 @@
 use encryption_core::{
-    add_file, get_file, init_blob, remove_file, rename_file, unlock_blob, FileMetadata, MetadataMap,
+    add_file, get_file, init_blob, remove_file, rename_file, unlock_blob, MetadataMap,
     VolumeType, remove_folder,
 };
 use serde::Serialize;
@@ -10,9 +10,8 @@ use tauri::State;
 use rand::{rngs::OsRng, RngCore};
 use hex;
 use tauri::{AppHandle, Manager, Emitter};
-use std::io;
-use tauri_plugin_fs::FsExt;
-use std::io::Write;
+
+// iOS file picker removed - using directory mode instead
 
 #[derive(Serialize)]
 struct FileInfo {
@@ -32,12 +31,31 @@ struct ApiResponse<T> {
     message: Option<String>,
 }
 
+#[derive(Serialize)]
+struct StatusResponse {
+    status: String,
+    mode: String,
+    blob_path: Option<String>,        // for single mode  
+    blob_dir: Option<String>,         // for directory mode
+    available_blobs: Option<Vec<String>>, // for directory mode
+    volume_type: Option<String>,
+}
+
 struct AppState {
     password: String,
     blob_path: PathBuf,
     metadata: MetadataMap,
     derived_key: [u8; 32],
     volume_type: VolumeType,
+    #[allow(dead_code)]
+    mode: ServerMode,
+}
+
+#[derive(Clone)]
+#[allow(dead_code)]
+enum ServerMode {
+    Desktop,           // Full file system access (macOS/Windows/Linux)
+    MobileDirectory,   // iOS/Android - use app sandbox directory
 }
 
 struct AppStateManager(Mutex<Option<AppState>>);
@@ -48,13 +66,181 @@ fn generate_random_hidden_password() -> String {
     format!("hidden_{}", hex::encode(password_h_bytes))
 }
 
+fn get_server_mode() -> ServerMode {
+    #[cfg(any(target_os = "ios", target_os = "android"))]
+    {
+        ServerMode::MobileDirectory
+    }
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
+    {
+        ServerMode::Desktop
+    }
+}
+
+fn get_blobs_directory(app_handle: &AppHandle) -> Result<PathBuf, String> {
+    let docs_dir = app_handle.path().document_dir()
+        .map_err(|e| format!("Failed to get documents directory: {}", e))?;
+    let blobs_dir = docs_dir.join("blobs");
+    
+    // Create directory if it doesn't exist
+    if !blobs_dir.exists() {
+        std::fs::create_dir_all(&blobs_dir)
+            .map_err(|e| format!("Failed to create blobs directory: {}", e))?;
+    }
+    
+    Ok(blobs_dir)
+}
+
+#[tauri::command]
+fn get_status(
+    app_handle: AppHandle,
+    state: State<AppStateManager>,
+) -> ApiResponse<StatusResponse> {
+    let guard = state.0.lock().unwrap();
+    let mode = get_server_mode();
+    
+    if let Some(app_state) = &*guard {
+        // Already unlocked
+        let volume_type_str = match app_state.volume_type {
+            VolumeType::Standard => "Standard",
+            VolumeType::Hidden => "Hidden",
+        };
+        
+        match mode {
+            ServerMode::Desktop => {
+                ApiResponse {
+                    success: true,
+                    data: Some(StatusResponse {
+                        status: "ready".to_string(),
+                        mode: "desktop".to_string(),
+                        blob_path: Some(app_state.blob_path.to_string_lossy().to_string()),
+                        blob_dir: None,
+                        available_blobs: None,
+                        volume_type: Some(volume_type_str.to_string()),
+                    }),
+                    message: None,
+                }
+            }
+            ServerMode::MobileDirectory => {
+                let blobs_dir = match get_blobs_directory(&app_handle) {
+                    Ok(dir) => dir,
+                    Err(e) => {
+                        return ApiResponse {
+                            success: false,
+                            data: None,
+                            message: Some(e),
+                        }
+                    }
+                };
+                
+                // List available blobs
+                let available_blobs = match std::fs::read_dir(&blobs_dir) {
+                    Ok(entries) => {
+                        let blobs: Vec<String> = entries
+                            .filter_map(Result::ok)
+                            .filter(|entry| entry.path().is_file())
+                            .filter_map(|entry| {
+                                let path = entry.path();
+                                path.file_name().map(|name| name.to_string_lossy().into_owned())
+                            })
+                            .collect();
+                        println!("[get_status] Ready state - Found {} blob files: {:?}", blobs.len(), blobs);
+                        blobs
+                    }
+                    Err(e) => {
+                        println!("[get_status] Ready state - Failed to read blobs directory: {}", e);
+                        Vec::new()
+                    },
+                };
+                
+                ApiResponse {
+                    success: true,
+                    data: Some(StatusResponse {
+                        status: "ready".to_string(),
+                        mode: "directory".to_string(),
+                        blob_path: None,
+                        blob_dir: Some(blobs_dir.to_string_lossy().to_string()),
+                        available_blobs: Some(available_blobs),
+                        volume_type: Some(volume_type_str.to_string()),
+                    }),
+                    message: None,
+                }
+            }
+        }
+    } else {
+        // Not unlocked yet
+        match mode {
+            ServerMode::Desktop => {
+                ApiResponse {
+                    success: true,
+                    data: Some(StatusResponse {
+                        status: "locked".to_string(),
+                        mode: "desktop".to_string(),
+                        blob_path: None,
+                        blob_dir: None,
+                        available_blobs: None,
+                        volume_type: None,
+                    }),
+                    message: None,
+                }
+            }
+            ServerMode::MobileDirectory => {
+                let blobs_dir = match get_blobs_directory(&app_handle) {
+                    Ok(dir) => dir,
+                    Err(e) => {
+                        return ApiResponse {
+                            success: false,
+                            data: None,
+                            message: Some(e),
+                        }
+                    }
+                };
+                
+                // List available blobs
+                let available_blobs = match std::fs::read_dir(&blobs_dir) {
+                    Ok(entries) => {
+                        let blobs: Vec<String> = entries
+                            .filter_map(Result::ok)
+                            .filter(|entry| entry.path().is_file())
+                            .filter_map(|entry| {
+                                let path = entry.path();
+                                path.file_name().map(|name| name.to_string_lossy().into_owned())
+                            })
+                            .collect();
+                        println!("[get_status] Locked state - Found {} blob files: {:?}", blobs.len(), blobs);
+                        blobs
+                    }
+                    Err(e) => {
+                        println!("[get_status] Locked state - Failed to read blobs directory: {}", e);
+                        Vec::new()
+                    },
+                };
+                
+                ApiResponse {
+                    success: true,
+                    data: Some(StatusResponse {
+                        status: "locked".to_string(),
+                        mode: "directory".to_string(),
+                        blob_path: None,
+                        blob_dir: Some(blobs_dir.to_string_lossy().to_string()),
+                        available_blobs: Some(available_blobs),
+                        volume_type: None,
+                    }),
+                    message: None,
+                }
+            }
+        }
+    }
+}
+
 #[tauri::command(rename_all = "snake_case")]
 fn init_encryption(
     app_handle: AppHandle,
     state: State<AppStateManager>,
     password_s: String,
     password_h: Option<String>,
-    blob_path: String,
+    blob_path: Option<String>,
+    blob_name: Option<String>,
 ) -> ApiResponse<FileList> {
     let mut guard = state.0.lock().unwrap();
 
@@ -66,45 +252,35 @@ fn init_encryption(
         };
     }
 
-    let blob_path_buf = {
-        #[cfg(not(any(target_os = "ios", target_os = "android")))]
-        {
-            PathBuf::from(&blob_path)
-        }
-        
-        #[cfg(any(target_os = "ios", target_os = "android"))]
-        {
-            let app_data_dir = match app_handle.path().app_data_dir() {
-                 Ok(dir) => dir,
-                 Err(e) => return ApiResponse {
-                     success: false,
-                     data: None,
-                     message: Some(format!("Failed to get app data directory: {}", e)),
-                 },
-            };
-            let blob_filename = match PathBuf::from(&blob_path).file_name() {
-                Some(name) => name.to_os_string(),
-                None => return ApiResponse {
-                    success: false,
-                    data: None,
-                    message: Some(format!("Invalid blob filename provided: {}", blob_path)),
-                },
-            };
-            let full_path = app_data_dir.join(blob_filename);
-
-            if let Some(parent) = full_path.parent() {
-                 if !parent.exists() {
-                     if let Err(e) = std::fs::create_dir_all(parent) {
-                          return ApiResponse {
-                              success: false,
-                              data: None,
-                              message: Some(format!("Failed to create blob directory '{}': {}", parent.display(), e)),
-                          };
-                     }
-                 }
+    let mode = get_server_mode();
+    
+    let blob_path_buf = match mode {
+        ServerMode::Desktop => {
+            // Desktop mode: use provided path or default
+            match blob_path {
+                Some(path) => PathBuf::from(path),
+                None => PathBuf::from("data.blob"), // Default for desktop
             }
-            println!("[init_encryption mobile] Using path: {}", full_path.display());
-            full_path
+        }
+        ServerMode::MobileDirectory => {
+            // Mobile directory mode: use blobs directory with provided or default name
+            let blobs_dir = match get_blobs_directory(&app_handle) {
+                Ok(dir) => dir,
+                Err(e) => {
+                    return ApiResponse {
+                        success: false,
+                        data: None,
+                        message: Some(e),
+                    }
+                }
+            };
+            
+            let filename = match blob_name {
+                Some(name) if !name.trim().is_empty() => name.trim().to_string(),
+                _ => "data.blob".to_string(), // Default filename
+            };
+            
+            blobs_dir.join(filename)
         }
     };
 
@@ -135,6 +311,7 @@ fn init_encryption(
                         metadata,
                         derived_key: key,
                         volume_type,
+                        mode: mode.clone(),
                     });
 
                     ApiResponse {
@@ -168,41 +345,84 @@ fn unlock_encryption(
     app_handle: AppHandle,
     state: State<AppStateManager>,
     password: String,
-    blob_path: String,
+    blob_path: Option<String>,
+    blob_name: Option<String>,
 ) -> ApiResponse<FileList> {
     let mut guard = state.0.lock().unwrap();
 
-    let blob_path_buf = {
-        #[cfg(not(any(target_os = "ios", target_os = "android")))]
-        {
-            PathBuf::from(&blob_path)
+    let mode = get_server_mode();
+    
+    let blob_path_buf = match mode {
+        ServerMode::Desktop => {
+            // Desktop mode: use provided path 
+            match blob_path {
+                Some(path) => PathBuf::from(path),
+                None => {
+                    return ApiResponse {
+                        success: false,
+                        data: None,
+                        message: Some("Blob path required for desktop mode".to_string()),
+                    }
+                }
+            }
         }
-        #[cfg(any(target_os = "ios", target_os = "android"))]
-        {
-            let app_data_dir = match app_handle.path().app_data_dir() {
-                 Ok(dir) => dir,
-                 Err(e) => return ApiResponse {
-                     success: false,
-                     data: None,
-                     message: Some(format!("Failed to get app data directory: {}", e)),
-                 },
+        ServerMode::MobileDirectory => {
+            // Mobile directory mode: use blobs directory with selected blob name
+            let blobs_dir = match get_blobs_directory(&app_handle) {
+                Ok(dir) => dir,
+                Err(e) => {
+                    return ApiResponse {
+                        success: false,
+                        data: None,
+                        message: Some(e),
+                    }
+                }
             };
-            let blob_filename = match PathBuf::from(&blob_path).file_name() {
-                Some(name) => name.to_os_string(),
-                None => return ApiResponse {
-                    success: false,
-                    data: None,
-                    message: Some(format!("Invalid blob filename provided: {}", blob_path)),
-                },
+            
+            let filename = match blob_name {
+                Some(name) if !name.trim().is_empty() => name.trim().to_string(),
+                _ => {
+                    return ApiResponse {
+                        success: false,
+                        data: None,
+                        message: Some("Blob name required for mobile directory mode".to_string()),
+                    }
+                }
             };
-            let full_path = app_data_dir.join(blob_filename);
-             println!("[unlock_encryption mobile] Using path: {}", full_path.display());
-             full_path
+            
+            blobs_dir.join(filename)
         }
     };
 
+    println!("[unlock_encryption mobile] FINAL blob_path_buf: {}", blob_path_buf.display());
+    println!("=== UNLOCK_ENCRYPTION MOBILE DEBUG END ===");
+
     if let Some(app) = guard.as_ref() {
-        if app.blob_path == blob_path_buf {
+        println!("=== CHECKING FOR EXISTING SESSION ===");
+        println!("[unlock_encryption] Current session blob_path: {}", app.blob_path.display());
+        println!("[unlock_encryption] New request blob_path: {}", blob_path_buf.display());
+        
+        // Enhanced path comparison for iOS file:// URLs
+        let paths_match = {
+            #[cfg(target_os = "ios")]
+            {
+                // Compare canonical paths on iOS to handle file:// URL differences
+                let current_canonical = app.blob_path.canonicalize().unwrap_or_else(|_| app.blob_path.clone());
+                let new_canonical = blob_path_buf.canonicalize().unwrap_or_else(|_| blob_path_buf.clone());
+                println!("[unlock_encryption] Current canonical: {}", current_canonical.display());
+                println!("[unlock_encryption] New canonical: {}", new_canonical.display());
+                println!("[unlock_encryption] Canonical paths match: {}", current_canonical == new_canonical);
+                current_canonical == new_canonical
+            }
+            #[cfg(not(target_os = "ios"))]
+            {
+                app.blob_path == blob_path_buf
+            }
+        };
+        
+        println!("[unlock_encryption] Paths match result: {}", paths_match);
+        
+        if paths_match {
             if app.password == password {
                 let files = app
                     .metadata
@@ -238,8 +458,15 @@ fn unlock_encryption(
         }
     }
 
+    println!("=== CALLING UNLOCK_BLOB ===");
+    println!("[unlock_encryption] About to call unlock_blob with path: {}", blob_path_buf.display());
+    println!("[unlock_encryption] Password length: {}", password.len());
+    
     match unlock_blob(&blob_path_buf, &password) {
         Ok((volume_type, key, metadata)) => {
+            println!("[unlock_encryption] ✅ Successfully unlocked {:?} volume", volume_type);
+            println!("[unlock_encryption] Metadata contains {} files", metadata.len());
+            
             let files = metadata
                 .iter()
                 .map(|(path, meta)| FileInfo {
@@ -254,7 +481,10 @@ fn unlock_encryption(
                 metadata,
                 derived_key: key,
                 volume_type,
+                mode: mode.clone(),
             });
+
+            println!("[unlock_encryption] ✅ State updated successfully");
 
             ApiResponse {
                 success: true,
@@ -262,10 +492,15 @@ fn unlock_encryption(
                 message: Some(format!("Unlocked {:?} volume at '{}'", volume_type, blob_path_buf.display())),
             }
         }
-        Err(e) => ApiResponse {
-            success: false,
-            data: None,
-            message: Some(format!("Invalid password or corrupt blob at '{}': {}", blob_path_buf.display(), e)),
+        Err(e) => {
+            println!("[unlock_encryption] ❌ Failed to unlock blob: {}", e);
+            println!("[unlock_encryption] Path used: {}", blob_path_buf.display());
+            
+            ApiResponse {
+                success: false,
+                data: None,
+                message: Some(format!("Invalid password or corrupt blob at '{}': {}", blob_path_buf.display(), e)),
+            }
         },
     }
 }
@@ -540,7 +775,7 @@ struct UploadCompletionStatus {
 
 #[tauri::command]
 async fn upload_files_by_data(
-    state: State<'_, AppStateManager>,
+    _state: State<'_, AppStateManager>,
     app: AppHandle,
     files: Vec<(String, Vec<u8>)>,
     save_paths: Vec<String>,
@@ -625,7 +860,7 @@ async fn upload_files_by_data(
 
 #[tauri::command]
 async fn upload_files_by_path(
-    state: State<'_, AppStateManager>,
+    _state: State<'_, AppStateManager>,
     app: AppHandle,
     absolute_paths: Vec<String>,
     current_folder: String,
@@ -635,85 +870,88 @@ async fn upload_files_by_path(
         return Err("Uploading by path is not supported on mobile platforms due to security restrictions. Please use the data upload method.".to_string());
     }
 
-    let app_clone = app.clone();
-    let paths_clone = absolute_paths.clone();
-    let current_folder_clone = current_folder.clone();
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
+    {
+        let app_clone = app.clone();
+        let paths_clone = absolute_paths.clone();
+        let current_folder_clone = current_folder.clone();
 
-    tauri::async_runtime::spawn(async move {
-        let total = paths_clone.len();
-        let mut errors: Vec<String> = Vec::new();
-        let mut processed_count = 0;
-        let state_manager = app_clone.state::<AppStateManager>();
+        tauri::async_runtime::spawn(async move {
+            let total = paths_clone.len();
+            let mut errors: Vec<String> = Vec::new();
+            let mut processed_count = 0;
+            let state_manager = app_clone.state::<AppStateManager>();
 
-        let mut guard = match state_manager.0.lock() {
-             Ok(guard) => guard,
-             Err(e) => {
-                 let error_msg = format!("Failed to acquire lock in background task (path mode): {}", e);
-                 eprintln!("{}", error_msg);
-                 app_clone.emit("upload_error", error_msg).ok();
-                 return;
-             }
-        };
+            let mut guard = match state_manager.0.lock() {
+                 Ok(guard) => guard,
+                 Err(e) => {
+                     let error_msg = format!("Failed to acquire lock in background task (path mode): {}", e);
+                     eprintln!("{}", error_msg);
+                     app_clone.emit("upload_error", error_msg).ok();
+                     return;
+                 }
+            };
 
-        if guard.is_none() {
-            eprintln!("Background upload task aborted (path mode): Session is locked.");
-            app_clone.emit("upload_error", "Upload failed: Session is locked.").ok();
-            return;
-        }
-        let app_state = guard.as_mut().unwrap();
+            if guard.is_none() {
+                eprintln!("Background upload task aborted (path mode): Session is locked.");
+                app_clone.emit("upload_error", "Upload failed: Session is locked.").ok();
+                return;
+            }
+            let app_state = guard.as_mut().unwrap();
 
-        for (i, absolute_path_str) in paths_clone.into_iter().enumerate() {
-             let absolute_path = PathBuf::from(&absolute_path_str);
-             let filename = absolute_path.file_name().map_or_else(|| absolute_path_str.clone(), |os| os.to_string_lossy().into_owned());
-             let save_path = if current_folder_clone.is_empty() {
-                 filename.clone()
-             } else {
-                 PathBuf::from(&current_folder_clone).join(&filename).to_string_lossy().into_owned()
-             };
+            for (i, absolute_path_str) in paths_clone.into_iter().enumerate() {
+                 let absolute_path = PathBuf::from(&absolute_path_str);
+                 let filename = absolute_path.file_name().map_or_else(|| absolute_path_str.clone(), |os| os.to_string_lossy().into_owned());
+                 let save_path = if current_folder_clone.is_empty() {
+                     filename.clone()
+                 } else {
+                     PathBuf::from(&current_folder_clone).join(&filename).to_string_lossy().into_owned()
+                 };
 
-             let progress = UploadProgress { current: i + 1, total, filename: filename.clone() };
-             app_clone.emit("upload_progress", progress).ok();
+                 let progress = UploadProgress { current: i + 1, total, filename: filename.clone() };
+                 app_clone.emit("upload_progress", progress).ok();
 
-             match fs::read(&absolute_path) {
-                 Ok(file_data) => {
-                     let mime_type = mime_guess::from_path(&save_path).first_or_octet_stream().to_string();
-                     if let Err(e) = add_file(&app_state.blob_path, app_state.volume_type, &app_state.derived_key, &mut app_state.metadata, &save_path, &file_data, &mime_type) {
-                         let error_msg = format!("Add file failed for '{}': {}", save_path, e);
+                 match fs::read(&absolute_path) {
+                     Ok(file_data) => {
+                         let mime_type = mime_guess::from_path(&save_path).first_or_octet_stream().to_string();
+                         if let Err(e) = add_file(&app_state.blob_path, app_state.volume_type, &app_state.derived_key, &mut app_state.metadata, &save_path, &file_data, &mime_type) {
+                             let error_msg = format!("Add file failed for '{}': {}", save_path, e);
+                             eprintln!("{}", error_msg);
+                             errors.push(error_msg);
+                         } else {
+                             processed_count += 1;
+                         }
+                     },
+                     Err(e) => {
+                         let error_msg = format!("Read file failed for '{}': {}", absolute_path_str, e);
                          eprintln!("{}", error_msg);
                          errors.push(error_msg);
-                     } else {
-                         processed_count += 1;
                      }
-                 },
-                 Err(e) => {
-                     let error_msg = format!("Read file failed for '{}': {}", absolute_path_str, e);
-                     eprintln!("{}", error_msg);
-                     errors.push(error_msg);
                  }
-             }
-        }
-        drop(guard);
-        let completion_payload = UploadCompletionStatus { success: errors.is_empty(), total_files: total, processed_files: processed_count, errors };
-        app_clone.emit("upload_complete", completion_payload).ok();
-    });
+            }
+            drop(guard);
+            let completion_payload = UploadCompletionStatus { success: errors.is_empty(), total_files: total, processed_files: processed_count, errors };
+            app_clone.emit("upload_complete", completion_payload).ok();
+        });
 
-    Ok(ApiResponse { success: true, data: None, message: Some("Upload started (path mode). Note: This only works on desktop.".to_string()) })
+        Ok(ApiResponse { success: true, data: None, message: Some("Upload started (path mode). Note: This only works on desktop.".to_string()) })
+    }
 }
 
 // Command to list .blob files specifically in the app data directory (Mobile Only)
 #[cfg(any(target_os = "ios", target_os = "android"))]
 #[tauri::command]
 fn list_blobs_in_app_data(app_handle: AppHandle) -> ApiResponse<Vec<String>> {
-    let app_data_dir = match app_handle.path().app_data_dir() {
+    let blobs_dir = match get_blobs_directory(&app_handle) {
         Ok(dir) => dir,
         Err(e) => return ApiResponse {
             success: false,
             data: None,
-            message: Some(format!("Failed to get app data directory: {}", e)),
+            message: Some(e),
         },
     };
 
-    if !app_data_dir.exists() {
+    if !blobs_dir.exists() {
         // If the directory doesn't exist yet, there are no blobs
         return ApiResponse {
             success: true,
@@ -722,20 +960,15 @@ fn list_blobs_in_app_data(app_handle: AppHandle) -> ApiResponse<Vec<String>> {
         };
     }
 
-    match fs::read_dir(&app_data_dir) {
+    match fs::read_dir(&blobs_dir) {
         Ok(entries) => {
             let blob_files: Vec<String> = entries
                 .filter_map(Result::ok) // Ignore entries that cause read errors
                 .filter(|entry| entry.path().is_file()) // Only consider files
                 .filter_map(|entry| {
                     let path = entry.path();
-                    // Check if the file extension is ".blob" (adjust if needed)
-                    if path.extension().map_or(false, |ext| ext == "blob") {
-                        // Return the filename as a String
-                        path.file_name().map(|name| name.to_string_lossy().into_owned())
-                    } else {
-                        None
-                    }
+                    // Return all files (blob files can have any extension for privacy)
+                    path.file_name().map(|name| name.to_string_lossy().into_owned())
                 })
                 .collect();
 
@@ -748,7 +981,177 @@ fn list_blobs_in_app_data(app_handle: AppHandle) -> ApiResponse<Vec<String>> {
         Err(e) => ApiResponse {
             success: false,
             data: None,
-            message: Some(format!("Failed to read app data directory '{}': {}", app_data_dir.display(), e)),
+            message: Some(format!("Failed to read blobs directory '{}': {}", blobs_dir.display(), e)),
+        },
+    }
+}
+
+// Command to import a blob file by content into the blobs directory (Mobile Only)
+#[cfg(any(target_os = "ios", target_os = "android"))]
+#[tauri::command]
+fn import_blob_by_content(app_handle: AppHandle, file_content: Vec<u8>, target_name: String) -> ApiResponse<()> {
+    println!("[import_blob_by_content] Starting import: {} bytes -> {}", file_content.len(), target_name);
+    
+    // Basic validation: Ensure target name is safe
+    if target_name.is_empty() || target_name.contains('/') || target_name.contains('\\') || target_name == "." || target_name == ".." {
+         println!("[import_blob_by_content] Invalid target filename: {}", target_name);
+         return ApiResponse {
+            success: false,
+            data: None,
+            message: Some(format!("Invalid target filename provided: {}", target_name)),
+        };
+    }
+
+    let blobs_dir = match get_blobs_directory(&app_handle) {
+        Ok(dir) => {
+            println!("[import_blob_by_content] Blobs directory: {}", dir.display());
+            dir
+        },
+        Err(e) => {
+            println!("[import_blob_by_content] Failed to get blobs directory: {}", e);
+            return ApiResponse {
+                success: false,
+                data: None,
+                message: Some(e),
+            };
+        }
+    };
+
+    let target_path = blobs_dir.join(&target_name);
+    println!("[import_blob_by_content] Target path: {}", target_path.display());
+
+    // Check if target already exists
+    if target_path.exists() {
+        println!("[import_blob_by_content] Target already exists: {}", target_path.display());
+        return ApiResponse {
+            success: false,
+            data: None,
+            message: Some(format!("A blob named '{}' already exists", target_name)),
+        };
+    }
+
+    // Write the content to the target location
+    println!("[import_blob_by_content] Writing {} bytes to target", file_content.len());
+    match std::fs::write(&target_path, &file_content) {
+        Ok(_) => {
+            println!("[import_blob_by_content] Successfully wrote {} bytes to target", file_content.len());
+            ApiResponse {
+                success: true,
+                data: None,
+                message: Some(format!("Blob '{}' imported successfully ({} bytes)", target_name, file_content.len())),
+            }
+        },
+        Err(e) => {
+            println!("[import_blob_by_content] Failed to write to target: {}", e);
+            ApiResponse {
+                success: false,
+                data: None,
+                message: Some(format!("Failed to write imported blob '{}': {}", target_name, e)),
+            }
+        },
+    }
+}
+
+// Command to import a blob file into the blobs directory (Mobile Only - Legacy)
+#[cfg(any(target_os = "ios", target_os = "android"))]
+#[tauri::command]
+fn import_blob_file(app_handle: AppHandle, source_path: String, target_name: String) -> ApiResponse<()> {
+    println!("[import_blob_file] Starting import: {} -> {}", source_path, target_name);
+    
+    // Basic validation: Ensure target name is safe
+    if target_name.is_empty() || target_name.contains('/') || target_name.contains('\\') || target_name == "." || target_name == ".." {
+         println!("[import_blob_file] Invalid target filename: {}", target_name);
+         return ApiResponse {
+            success: false,
+            data: None,
+            message: Some(format!("Invalid target filename provided: {}", target_name)),
+        };
+    }
+
+    let blobs_dir = match get_blobs_directory(&app_handle) {
+        Ok(dir) => {
+            println!("[import_blob_file] Blobs directory: {}", dir.display());
+            dir
+        },
+        Err(e) => {
+            println!("[import_blob_file] Failed to get blobs directory: {}", e);
+            return ApiResponse {
+                success: false,
+                data: None,
+                message: Some(e),
+            };
+        }
+    };
+
+    let target_path = blobs_dir.join(&target_name);
+    println!("[import_blob_file] Target path: {}", target_path.display());
+
+    // Check if target already exists
+    if target_path.exists() {
+        println!("[import_blob_file] Target already exists: {}", target_path.display());
+        return ApiResponse {
+            success: false,
+            data: None,
+            message: Some(format!("A blob named '{}' already exists", target_name)),
+        };
+    }
+
+    // On iOS, we need to use Tauri's file system API instead of std::fs
+    // because the source path might be in a sandboxed location
+    println!("[import_blob_file] Reading source file using Tauri API: {}", source_path);
+    
+    // First, try to read the source file content
+    let source_content = match std::fs::read(&source_path) {
+        Ok(content) => {
+            println!("[import_blob_file] Successfully read {} bytes from source", content.len());
+            content
+        },
+        Err(e) => {
+            println!("[import_blob_file] Failed to read source file with std::fs: {}", e);
+            // On iOS, the path might be a file:// URL or need special handling
+            // Try to handle file:// URLs
+            let clean_path = if source_path.starts_with("file://") {
+                source_path.strip_prefix("file://").unwrap_or(&source_path)
+            } else {
+                &source_path
+            };
+            
+            println!("[import_blob_file] Trying cleaned path: {}", clean_path);
+            match std::fs::read(clean_path) {
+                Ok(content) => {
+                    println!("[import_blob_file] Successfully read {} bytes from cleaned path", content.len());
+                    content
+                },
+                Err(e2) => {
+                    println!("[import_blob_file] Failed to read from cleaned path: {}", e2);
+                    return ApiResponse {
+                        success: false,
+                        data: None,
+                        message: Some(format!("Failed to read source file '{}': {} (cleaned path '{}': {})", source_path, e, clean_path, e2)),
+                    };
+                }
+            }
+        }
+    };
+    
+    // Now write the content to the target location
+    println!("[import_blob_file] Writing {} bytes to target: {}", source_content.len(), target_path.display());
+    match std::fs::write(&target_path, &source_content) {
+        Ok(_) => {
+            println!("[import_blob_file] Successfully wrote {} bytes to target", source_content.len());
+            ApiResponse {
+                success: true,
+                data: None,
+                message: Some(format!("Blob '{}' imported successfully ({} bytes)", target_name, source_content.len())),
+            }
+        },
+        Err(e) => {
+            println!("[import_blob_file] Failed to write to target: {}", e);
+            ApiResponse {
+                success: false,
+                data: None,
+                message: Some(format!("Failed to write imported blob '{}': {}", target_name, e)),
+            }
         },
     }
 }
@@ -765,31 +1168,23 @@ fn delete_blob_from_app_data(app_handle: AppHandle, blob_filename: String) -> Ap
             message: Some(format!("Invalid blob filename provided: {}", blob_filename)),
         };
     }
-    // Ensure it has the correct extension
-    if !blob_filename.ends_with(".blob") { // Adjust extension if needed
-         return ApiResponse {
-            success: false,
-            data: None,
-            message: Some(format!("Filename '{}' does not have the expected .blob extension", blob_filename)),
-        };
-    }
 
-    let app_data_dir = match app_handle.path().app_data_dir() {
+    let blobs_dir = match get_blobs_directory(&app_handle) {
         Ok(dir) => dir,
         Err(e) => return ApiResponse {
             success: false,
             data: None,
-            message: Some(format!("Failed to get app data directory: {}", e)),
+            message: Some(e),
         },
     };
 
-    let file_to_delete = app_data_dir.join(&blob_filename);
+    let file_to_delete = blobs_dir.join(&blob_filename);
 
     if !file_to_delete.exists() {
         return ApiResponse {
             success: false,
             data: None,
-            message: Some(format!("Blob file '{}' not found in app data directory", blob_filename)),
+            message: Some(format!("Blob file '{}' not found in blobs directory", blob_filename)),
         };
     }
 
@@ -807,6 +1202,73 @@ fn delete_blob_from_app_data(app_handle: AppHandle, blob_filename: String) -> Ap
     }
 }
 
+// Command to export a blob file by content (Mobile Only)
+#[cfg(any(target_os = "ios", target_os = "android"))]
+#[tauri::command]
+fn export_blob_by_content(app_handle: AppHandle, blob_filename: String) -> ApiResponse<Vec<u8>> {
+    println!("[export_blob_by_content] Starting export: {}", blob_filename);
+    
+    // Basic validation: Ensure filename is not empty and doesn't contain path separators
+    if blob_filename.is_empty() || blob_filename.contains('/') || blob_filename.contains('\\') || blob_filename == "." || blob_filename == ".." {
+         return ApiResponse {
+            success: false,
+            data: None,
+            message: Some(format!("Invalid blob filename provided: {}", blob_filename)),
+        };
+    }
+
+    let blobs_dir = match get_blobs_directory(&app_handle) {
+        Ok(dir) => {
+            println!("[export_blob_by_content] Blobs directory: {}", dir.display());
+            dir
+        },
+        Err(e) => {
+            println!("[export_blob_by_content] Failed to get blobs directory: {}", e);
+            return ApiResponse {
+                success: false,
+                data: None,
+                message: Some(e),
+            };
+        }
+    };
+
+    let source_path = blobs_dir.join(&blob_filename);
+    println!("[export_blob_by_content] Source path: {}", source_path.display());
+
+    // Check if source exists
+    if !source_path.exists() {
+        println!("[export_blob_by_content] Source does not exist: {}", source_path.display());
+        return ApiResponse {
+            success: false,
+            data: None,
+            message: Some(format!("Blob file '{}' not found in blobs directory", blob_filename)),
+        };
+    }
+
+    // Read the content from the source location
+    println!("[export_blob_by_content] Reading blob content");
+    match std::fs::read(&source_path) {
+        Ok(content) => {
+            println!("[export_blob_by_content] Successfully read {} bytes", content.len());
+            ApiResponse {
+                success: true,
+                data: Some(content.clone()),
+                message: Some(format!("Blob '{}' exported successfully ({} bytes)", blob_filename, content.len())),
+            }
+        },
+        Err(e) => {
+            println!("[export_blob_by_content] Failed to read from source: {}", e);
+            ApiResponse {
+                success: false,
+                data: None,
+                message: Some(format!("Failed to read blob '{}': {}", blob_filename, e)),
+            }
+        },
+    }
+}
+
+// iOS file picker commands removed - using directory mode instead
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default()
@@ -817,28 +1279,72 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(AppStateManager(Mutex::new(None)));
 
-    // Conditionally add mobile-specific handlers
-    #[cfg(any(target_os = "ios", target_os = "android"))]
-    let builder = builder.invoke_handler(tauri::generate_handler![
-        list_blobs_in_app_data,
-        delete_blob_from_app_data
-    ]);
-
-    // Add common handlers (ensure no duplicates if also added conditionally)
-    let final_builder = builder.invoke_handler(tauri::generate_handler![
-            init_encryption,
-            unlock_encryption,
-            logout_encryption,
-            get_file_tree,
-            upload_file_data, // Works cross-platform
-            rename_file_in_blob,
-            delete_file_from_blob,
-            delete_folder_from_blob,
-            download_file_from_blob,
-            upload_files_by_path, // Now guarded internally for mobile
-            upload_files_by_data // Works cross-platform
-            // DO NOT add mobile handlers here again if added conditionally above
-        ]);
+    // Combine all handlers in a single call to avoid replacement
+    let final_builder = builder.invoke_handler(
+        {
+            #[cfg(all(target_os = "ios"))]
+            {
+                tauri::generate_handler![
+                    get_status,
+                    init_encryption,
+                    unlock_encryption,
+                    logout_encryption,
+                    get_file_tree,
+                    upload_file_data,
+                    rename_file_in_blob,
+                    delete_file_from_blob,
+                    delete_folder_from_blob,
+                    download_file_from_blob,
+                    upload_files_by_path,
+                    upload_files_by_data,
+                    list_blobs_in_app_data,
+                    delete_blob_from_app_data,
+                    import_blob_file,
+                    import_blob_by_content,
+                    export_blob_by_content
+                ]
+            }
+            #[cfg(all(target_os = "android", not(target_os = "ios")))]
+            {
+                tauri::generate_handler![
+                    get_status,
+                    init_encryption,
+                    unlock_encryption,
+                    logout_encryption,
+                    get_file_tree,
+                    upload_file_data,
+                    rename_file_in_blob,
+                    delete_file_from_blob,
+                    delete_folder_from_blob,
+                    download_file_from_blob,
+                    upload_files_by_path,
+                    upload_files_by_data,
+                    list_blobs_in_app_data,
+                    delete_blob_from_app_data,
+                    import_blob_file,
+                    import_blob_by_content,
+                    export_blob_by_content
+                ]
+            }
+            #[cfg(not(any(target_os = "ios", target_os = "android")))]
+            {
+                tauri::generate_handler![
+                    get_status,
+                    init_encryption,
+                    unlock_encryption,
+                    logout_encryption,
+                    get_file_tree,
+                    upload_file_data,
+                    rename_file_in_blob,
+                    delete_file_from_blob,
+                    delete_folder_from_blob,
+                    download_file_from_blob,
+                    upload_files_by_path,
+                    upload_files_by_data
+                ]
+            }
+        }
+    );
 
     final_builder
         .setup(|app| {

@@ -1,16 +1,24 @@
 [workspace]
 members = [
     "encryption_core",
-    "enc_server",
-    "enc_tauri/src-tauri",
-    "enc_tauri"
+    "enc_server"
 ]
+exclude = [
+    "enc_tauri/src-tauri"
+]
+resolver = "3"
 
 # The workspace doesn't have its own dependencies
 [workspace.package]
 edition = "2024"
 version = "0.1.0"
 authors = ["ENC Server Team"]
+license = "AGPL-3.0-or-later"
+homepage = "https://github.com/yourusername/enc-server"
+repository = "https://github.com/yourusername/enc-server"
+description = "Encrypted file storage server with web interface"
+keywords = ["encryption", "storage", "server", "security"]
+categories = ["cryptography", "web-programming", "command-line-utilities"]
 
 # Shared dependencies for all workspace members
 [workspace.dependencies]

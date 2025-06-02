@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { open, save } from '@tauri-apps/plugin-dialog';
-import { writeFile } from '@tauri-apps/plugin-fs';
+import { writeFile, readFile } from '@tauri-apps/plugin-fs';
 import { pdfjs } from 'react-pdf';
 // import { Document, Page } from 'react-pdf';
 import { listen } from '@tauri-apps/api/event';
@@ -62,6 +62,15 @@ function App() {
   const [fileDataUrl, setFileDataUrl] = useState(null);
   const [loadingDataUrl, setLoadingDataUrl] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(null);
+  // New state for mode-aware handling
+  const [serverMode, setServerMode] = useState(null); // 'desktop' | 'directory'
+  const [availableBlobs, setAvailableBlobs] = useState([]);
+  const [selectedBlob, setSelectedBlob] = useState('');
+  const [newBlobName, setNewBlobName] = useState('');
+  // Debug state for import tracking
+  const [debugInfo, setDebugInfo] = useState('');
+  // Import dialog state
+  const [importDialog, setImportDialog] = useState({ open: false, sourcePath: '', originalName: '', importName: '' });
 
   const isFullscreenApiAvailable = useMemo(() => {
     return !!(document.fullscreenEnabled || document.webkitFullscreenEnabled || document.mozFullScreenEnabled || document.msFullscreenEnabled);
@@ -77,6 +86,35 @@ function App() {
       setTimeout(() => setMessage(''), 5000);
     }
   }, [setError, setMessage]); // Add state setters as dependencies
+
+  // Function to check server status and extract mode info
+  const checkServerStatus = useCallback(async () => {
+    try {
+      const response = await invoke('get_status');
+      console.log('[checkServerStatus] Response:', response);
+      
+      if (response.success && response.data) {
+        const data = response.data;
+        
+        // Set server mode and available blobs
+        setServerMode(data.mode);
+        if (data.mode === 'directory' && data.available_blobs) {
+          console.log('[checkServerStatus] Updating available blobs:', data.available_blobs);
+          setAvailableBlobs(data.available_blobs);
+        } else {
+          console.log('[checkServerStatus] No available blobs to update. Mode:', data.mode, 'Available blobs:', data.available_blobs);
+        }
+        
+        return data.status === 'ready';
+      }
+      
+      console.warn('[checkServerStatus] Unexpected response:', response);
+      return false;
+    } catch (error) {
+      console.error('[checkServerStatus] Failed to check status:', error);
+      return false; // Default to unlock if status check fails
+    }
+  }, []);
 
   // --- START: Define navigation functions BEFORE refreshFileList ---
 
@@ -232,8 +270,20 @@ function App() {
     // Do NOT attempt initial refresh if we are starting in decoy mode.
     // The refresh will be triggered by revealApp.
     if (mode !== 'decoy') {
-        console.log("Initial check: Attempting to refresh file list...");
-        refreshFileList();
+        console.log("Initial check: Checking server status...");
+        console.log("Platform detection - iOS blob import should be available");
+        checkServerStatus().then(isReady => {
+          console.log("Initial status check completed. Ready:", isReady, "Server mode:", serverMode);
+          if (isReady) {
+            setMode('ready');
+            refreshFileList();
+          } else {
+            setMode('unlock');
+          }
+        }).catch(error => {
+          console.error('Initial status check failed:', error);
+          setMode('unlock');
+        });
     }
   }, []); // Run only once on mount, but conditionally based on initial mode
 
@@ -398,18 +448,37 @@ function App() {
       setTemporaryMessage('Password is required', true);
       return;
     }
-    if (!blobPath) {
-      setTemporaryMessage('Please select a blob file', true);
-      return;
+    
+    // Validate input based on server mode
+    if (serverMode === 'directory') {
+      if (!selectedBlob) {
+        setTemporaryMessage('Please select a blob file', true);
+        return;
+      }
+    } else if (serverMode === 'desktop') {
+      if (!blobPath) {
+        setTemporaryMessage('Please select a blob file', true);
+        return;
+      }
     }
+    
     setIsUploading(true);
     setError('');
     setMessage('');
     try {
-      const response = await invoke('unlock_encryption', {
+      // Prepare parameters based on server mode
+      const params = {
         password,
-        blobPath
-      });
+      };
+      
+      if (serverMode === 'desktop') {
+        params.blobPath = blobPath;
+      } else if (serverMode === 'directory') {
+        params.blobName = selectedBlob;
+      }
+      
+      const response = await invoke('unlock_encryption', params);
+      
       if (response.success) {
         // Don't set mode directly, let refreshFileList handle it
         // setMode('ready');
@@ -443,10 +512,20 @@ function App() {
       setTemporaryMessage('Standard Password is required', true);
       return;
     }
-    if (!blobPath) {
-      setTemporaryMessage('Please select a blob file path', true); // Changed message slightly
-      return;
+    
+    // Validate input based on server mode
+    if (serverMode === 'directory') {
+      if (!newBlobName.trim()) {
+        setTemporaryMessage('Please enter a blob name', true);
+        return;
+      }
+    } else if (serverMode === 'desktop') {
+      if (!blobPath) {
+        setTemporaryMessage('Please select a blob file path', true);
+        return;
+      }
     }
+    
     if (password !== confirmPassword) {
       setTemporaryMessage('Standard passwords do not match', true);
       return;
@@ -467,11 +546,17 @@ function App() {
     setError('');
     setMessage('');
     try {
+      // Prepare arguments based on server mode
       const args = {
         password_s: password,
         password_h: hiddenPassTrimmed === '' ? null : hiddenPassword,
-        blob_path: blobPath
       };
+      
+      if (serverMode === 'desktop') {
+        args.blob_path = blobPath;
+      } else if (serverMode === 'directory') {
+        args.blob_name = newBlobName.trim();
+      }
       console.log('[handleInit] Invoking init_encryption with args:', JSON.stringify(args)); // Log arguments
       const response = await invoke('init_encryption', args);
 
@@ -581,17 +666,20 @@ function App() {
 
   // Select a blob file (used by Unlock and Init)
   const selectBlobFile = async (forSave = false) => {
+    console.log('[selectBlobFile] Called with forSave:', forSave, 'serverMode:', serverMode);
     setError('');
     setMessage('');
     try {
       let selectedPath;
       if (forSave) {
+          console.log('[selectBlobFile] Opening save dialog...');
           selectedPath = await save({
             // WORKAROUND: Add a dummy extension based on GH issue #1596
             // to potentially force Files app picker on iOS instead of Photos.
             // filters: [{ extensions: ['blob', 'txt'] }],
           });
       } else {
+          console.log('[selectBlobFile] Opening file picker dialog...');
           selectedPath = await open({
             // WORKAROUND: Add a dummy extension based on GH issue #1596
             // to potentially force Files app picker on iOS instead of Photos.
@@ -604,11 +692,248 @@ function App() {
           });
       }
 
+      console.log('[selectBlobFile] Selected path:', selectedPath);
+
       if (selectedPath) {
-        setBlobPath(selectedPath);
+        if (serverMode === 'directory') {
+          // iOS directory mode - start import process with dialog
+          console.log('[selectBlobFile] Directory mode - starting import process');
+          startImportProcess(selectedPath);
+        } else {
+          // Desktop mode - use path directly
+          console.log('[selectBlobFile] Desktop mode - setting blob path');
+          setBlobPath(selectedPath);
+        }
+      } else {
+        console.log('[selectBlobFile] No path selected (user cancelled)');
       }
     } catch (e) {
+      console.error('[selectBlobFile] Error:', e);
       setTemporaryMessage(`Error selecting file: ${e.message || e}`, true);
+    }
+  };
+  
+  // Start import process - opens dialog for name input
+  const startImportProcess = (sourcePath) => {
+    setDebugInfo('Starting import process...');
+    const originalName = sourcePath.split('/').pop() || 'imported.blob';
+    setDebugInfo(`Source: ${sourcePath}\nOriginal name: ${originalName}`);
+    
+    setImportDialog({
+      open: true,
+      sourcePath: sourcePath,
+      originalName: originalName,
+      importName: originalName
+    });
+  };
+
+  // Complete the import with the chosen name
+  const completeImport = async () => {
+    try {
+      setIsUploading(true);
+      const { sourcePath, importName } = importDialog;
+      
+      if (!importName.trim()) {
+        setDebugInfo('No import name provided');
+        setImportDialog({ open: false, sourcePath: '', originalName: '', importName: '' });
+        setIsUploading(false);
+        return;
+      }
+      
+      setDebugInfo(`Importing as: ${importName}\nReading file content...`);
+      setImportDialog({ open: false, sourcePath: '', originalName: '', importName: '' });
+      
+      // On iOS, we need to read the file content first and then pass it to backend
+      // because file paths from the picker might not be accessible to the backend
+      let fileContent;
+      try {
+        const fileData = await readFile(sourcePath);
+        fileContent = Array.from(new Uint8Array(fileData));
+        setDebugInfo(`File read successfully: ${fileContent.length} bytes\nCalling backend...`);
+      } catch (readError) {
+        setDebugInfo(`Failed to read file: ${readError.toString()}`);
+        setTemporaryMessage(`Failed to read selected file: ${readError}`, true);
+        setIsUploading(false);
+        return;
+      }
+      
+      // Send the file content to backend for import
+      const response = await invoke('import_blob_by_content', {
+        fileContent: fileContent,
+        targetName: importName
+      });
+      
+      setDebugInfo(`Backend response: ${JSON.stringify(response, null, 2)}`);
+      
+      if (response.success) {
+        setDebugInfo('Import successful! Refreshing blob list...');
+        
+        // Refresh available blobs - try multiple times to ensure it updates
+        let found = false;
+        let currentBlobs = [];
+        for (let i = 0; i < 3; i++) {
+          const statusResponse = await invoke('get_status');
+          if (statusResponse.success && statusResponse.data && statusResponse.data.available_blobs) {
+            currentBlobs = statusResponse.data.available_blobs;
+            setAvailableBlobs(currentBlobs); // Update state directly
+            setDebugInfo(`Status refresh ${i + 1}/3\nBlobs found: ${currentBlobs.length}\nList: ${JSON.stringify(currentBlobs)}`);
+            
+            // Check if the imported blob appears in the list
+            if (currentBlobs.includes(importName)) {
+              setDebugInfo(`SUCCESS! Found '${importName}' in blob list`);
+              found = true;
+              break;
+            }
+          } else {
+            setDebugInfo(`Status refresh ${i + 1}/3 failed: ${JSON.stringify(statusResponse)}`);
+          }
+          
+          // Wait a bit before retrying
+          await new Promise(resolve => setTimeout(resolve, 200));
+        }
+        
+        if (!found) {
+          setDebugInfo(`WARNING: '${importName}' not found in list after 3 attempts\nCurrent blobs: ${JSON.stringify(currentBlobs)}`);
+        }
+        
+        // Select the imported blob
+        setSelectedBlob(importName);
+        setTemporaryMessage(`Blob '${importName}' imported successfully`);
+      } else {
+        setDebugInfo(`Import failed: ${response.message}`);
+        setTemporaryMessage(`Failed to import blob: ${response.message}`, true);
+      }
+      
+    } catch (error) {
+      setDebugInfo(`Exception during import: ${error.toString()}`);
+      setTemporaryMessage(`Failed to import blob: ${error}`, true);
+    } finally {
+      setIsUploading(false);
+      // Clear debug info after 10 seconds
+      setTimeout(() => setDebugInfo(''), 10000);
+    }
+  };
+
+  // Cancel import process
+  const cancelImport = () => {
+    setDebugInfo('Import cancelled by user');
+    setImportDialog({ open: false, sourcePath: '', originalName: '', importName: '' });
+    setIsUploading(false);
+    setTimeout(() => setDebugInfo(''), 3000);
+  };
+  
+  // Delete a blob file (for iOS and browser server modes)
+  const handleDeleteBlob = async (blobName) => {
+    if (!window.confirm(`Are you sure you want to delete the blob '${blobName}'? This cannot be undone!`)) {
+      return;
+    }
+    
+    try {
+      console.log('[handleDeleteBlob] Starting delete process for:', blobName);
+      setIsUploading(true);
+      
+      let response;
+      if (serverMode === 'directory') {
+        // For Tauri (iOS/Android)
+        console.log('[handleDeleteBlob] Using Tauri delete command');
+        response = await invoke('delete_blob_from_app_data', { blobFilename: blobName });
+      } else {
+        // For browser server
+        console.log('[handleDeleteBlob] Using browser API delete');
+        const res = await fetch('/api/delete-blob', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ blob_name: blobName }),
+        });
+        response = await res.json();
+      }
+      
+      console.log('[handleDeleteBlob] Backend response:', response);
+      
+      if (response.success) {
+        console.log('[handleDeleteBlob] Delete successful, updating UI...');
+        
+        // Clear selection if we deleted the selected blob
+        if (selectedBlob === blobName) {
+          setSelectedBlob('');
+          console.log('[handleDeleteBlob] Cleared selected blob');
+        }
+        
+        // Refresh available blobs - try multiple times to ensure it updates
+        for (let i = 0; i < 3; i++) {
+          const statusUpdated = await checkServerStatus();
+          console.log(`[handleDeleteBlob] Status update attempt ${i + 1}:`, statusUpdated);
+          
+          // Check if the deleted blob is gone from the list
+          if (!availableBlobs.includes(blobName)) {
+            console.log('[handleDeleteBlob] Deleted blob removed from list');
+            break;
+          }
+          
+          // Wait a bit before retrying
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+        
+        setTemporaryMessage(`Blob '${blobName}' deleted successfully`);
+      } else {
+        console.error('[handleDeleteBlob] Delete failed:', response.message);
+        setTemporaryMessage(`Failed to delete blob: ${response.message}`, true);
+      }
+      
+    } catch (error) {
+      console.error('[handleDeleteBlob] Exception during delete:', error);
+      setTemporaryMessage(`Failed to delete blob: ${error}`, true);
+    } finally {
+      setIsUploading(false);
+      console.log('[handleDeleteBlob] Delete process completed');
+    }
+  };
+
+  // Export a blob file (for iOS and browser server modes)
+  const handleExportBlob = async (blobName) => {
+    try {
+      console.log('[handleExportBlob] Starting export process for:', blobName);
+      setIsUploading(true);
+      
+      let response;
+      if (serverMode === 'directory') {
+        // For Tauri (iOS/Android) - get blob content from backend
+        console.log('[handleExportBlob] Using Tauri export command');
+        response = await invoke('export_blob_by_content', { blobFilename: blobName });
+        
+        if (response.success && response.data) {
+          // Use Tauri dialog to save the file
+          const savePath = await save({
+            defaultPath: blobName,
+            filters: [
+              { name: 'All Files', extensions: ['*'] }
+            ]
+          });
+          
+          if (savePath) {
+            // Write the content to the selected location
+            const uint8Array = new Uint8Array(response.data);
+            await writeFile(savePath, uint8Array);
+            setTemporaryMessage(`Blob '${blobName}' exported successfully to ${savePath.split('/').pop()}`);
+          } else {
+            console.log('[handleExportBlob] User cancelled save dialog');
+          }
+        } else {
+          console.error('[handleExportBlob] Export failed:', response.message);
+          setTemporaryMessage(`Failed to export blob: ${response.message}`, true);
+        }
+      } else {
+        // For browser server - not implemented yet
+        console.log('[handleExportBlob] Browser export not implemented');
+        setTemporaryMessage('Export not available in browser mode', true);
+      }
+      
+    } catch (error) {
+      console.error('[handleExportBlob] Exception during export:', error);
+      setTemporaryMessage(`Failed to export blob: ${error}`, true);
+    } finally {
+      setIsUploading(false);
+      console.log('[handleExportBlob] Export process completed');
     }
   };
 
@@ -904,6 +1229,8 @@ function App() {
     let fileType = 'other';
     if (path.match(/\.(png|jpe?g|gif|bmp|webp)$/i)) {
       fileType = 'image';
+    } else if (path.match(/\.(mp4|avi|mkv|mov|wmv|flv|webm|m4v|3gp|ogv)$/i)) {
+      fileType = 'video';
     } else if (path.endsWith('.pdf')) {
       fileType = 'pdf';
     }
@@ -1179,8 +1506,19 @@ function App() {
   // Reveal app function
   const revealApp = useCallback(() => {
       console.log("Revealing app, checking status...");
-      refreshFileList();
-  }, [refreshFileList]);
+      // Check server status first, then determine next mode
+      checkServerStatus().then(isReady => {
+        if (isReady) {
+          setMode('ready');
+          refreshFileList();
+        } else {
+          setMode('unlock');
+        }
+      }).catch(error => {
+        console.error('Status check failed in revealApp:', error);
+        setMode('unlock');
+      });
+  }, [checkServerStatus, refreshFileList]);
 
   // Function to go back to the decoy screen
   const goBackToDecoy = useCallback(() => {
@@ -1284,6 +1622,17 @@ function App() {
             handleUnlock={handleUnlock}
             setMode={setMode}
             isUploading={isUploading}
+            serverMode={serverMode}
+            availableBlobs={availableBlobs}
+            selectedBlob={selectedBlob}
+            setSelectedBlob={setSelectedBlob}
+            handleDeleteBlob={handleDeleteBlob}
+            handleExportBlob={handleExportBlob}
+            debugInfo={debugInfo}
+            importDialog={importDialog}
+            setImportDialog={setImportDialog}
+            completeImport={completeImport}
+            cancelImport={cancelImport}
           />
         );
       case 'init':
@@ -1300,10 +1649,12 @@ function App() {
             blobPath={blobPath}
             selectBlobFile={() => selectBlobFile(true)}
             handleInit={handleInit}
-            uploadFiles={uploadFiles}
-            onFileSelectForInit={onFileSelectForInit}
+            // uploadFiles and onFileSelectForInit removed
             isUploading={isUploading}
             setMode={setMode}
+            serverMode={serverMode}
+            newBlobName={newBlobName}
+            setNewBlobName={setNewBlobName}
           />
         );
       case 'ready':
@@ -1352,6 +1703,9 @@ function App() {
             setTemporaryMessage={setTemporaryMessage}
             uploadProgress={uploadProgress}
             goBackToDecoy={goBackToDecoy}
+            setSelected={setSelected}
+            setViewerType={setViewerType}
+            setFileDataUrl={setFileDataUrl}
           />
         );
       default:

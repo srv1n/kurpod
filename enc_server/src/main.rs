@@ -18,6 +18,7 @@ use tokio::net::TcpListener;
 use hex;
 use log::{info, warn, error};
 use env_logger;
+use std::fs;
 
 /// Command-line arguments
 #[derive(Parser, Debug)]
@@ -26,18 +27,28 @@ struct Args {
     /// Port to listen on
     #[arg(short, long, default_value_t = 3000)]
     port: u16,
-    /// Blob file path
-    #[arg(short, long, default_value = "data.blob")]
-    blob: String,
+    /// Specific blob file path (single-blob mode)
+    #[arg(short, long)]
+    blob: Option<String>,
+    /// Directory containing blob files (directory mode)
+    #[arg(long)]
+    blob_dir: Option<String>,
 }
 
 // Shared application state
 type SharedState = Arc<Mutex<Option<AppState>>>;
 
-// App context that includes the blob path
+// Server mode for blob handling
+#[derive(Clone, Debug)]
+enum ServerMode {
+    Single(PathBuf),    // Single blob file
+    Directory(PathBuf), // Directory containing blobs
+}
+
+// App context that includes the blob mode and path
 #[derive(Clone)]
 struct AppContext {
-    blob_path: PathBuf,
+    mode: ServerMode,
     state: SharedState,
 }
 
@@ -67,12 +78,16 @@ struct FileInfo {
 struct InitPayload {
     password_s: String, // Standard/Decoy password
     password_h: Option<String>, // Optional hidden password
+    blob_path: Option<String>, // Optional blob path override (single mode only)
+    blob_name: Option<String>, // Optional blob name (directory mode only)
 }
 
 /// Unlock payload
 #[derive(Deserialize)]
 struct UnlockPayload {
     password: String,
+    blob_path: Option<String>, // Optional blob path override (single mode only)
+    blob_name: Option<String>, // Optional blob name (directory mode only)
 }
 
 /// Rename payload
@@ -101,6 +116,62 @@ struct BatchInfo {
     batch_id: String,
 }
 
+// Helper function to validate or create directory
+fn validate_or_create_directory(dir_path: &PathBuf) {
+    if dir_path.exists() {
+        if !dir_path.is_dir() {
+            eprintln!("Error: {} exists but is not a directory", dir_path.display());
+            std::process::exit(1);
+        }
+        // Check if we can write to it
+        match fs::metadata(dir_path) {
+            Ok(metadata) => {
+                if metadata.permissions().readonly() {
+                    eprintln!("Error: Directory {} is read-only", dir_path.display());
+                    std::process::exit(1);
+                }
+            }
+            Err(e) => {
+                eprintln!("Error: Cannot access directory {}: {}", dir_path.display(), e);
+                std::process::exit(1);
+            }
+        }
+    } else {
+        // Try to create the directory
+        match fs::create_dir_all(dir_path) {
+            Ok(()) => {
+                println!("Created directory: {}", dir_path.display());
+            }
+            Err(e) => {
+                eprintln!("Error: Cannot create directory {}: {}", dir_path.display(), e);
+                std::process::exit(1);
+            }
+        }
+    }
+}
+
+// Helper function to get available blob files in a directory
+fn get_available_blobs(dir_path: &PathBuf) -> Vec<String> {
+    let mut blobs = Vec::new();
+    
+    if let Ok(entries) = fs::read_dir(dir_path) {
+        for entry in entries.flatten() {
+            if let Ok(metadata) = entry.metadata() {
+                if metadata.is_file() {
+                    if let Some(file_name) = entry.file_name().to_str() {
+                        // Include all files as potential blobs (user can disguise them)
+                        blobs.push(file_name.to_string());
+                    }
+                }
+            }
+        }
+    }
+    
+    // Sort for consistent ordering
+    blobs.sort();
+    blobs
+}
+
 #[tokio::main]
 async fn main() {
     // Initialize logger (e.g., RUST_LOG=info cargo run)
@@ -108,10 +179,66 @@ async fn main() {
     let _ = env_logger::builder().filter_level(log::LevelFilter::Info).try_init();
 
     let args = Args::parse();
-    let blob_path: PathBuf = args.blob.into();
+    
+    // Determine server mode from args and environment variables
+    let mode = match (args.blob, args.blob_dir, std::env::var("BLOB_FILE"), std::env::var("BLOB_DIR")) {
+        // CLI args take precedence
+        (Some(blob_file), None, _, _) => {
+            let path = PathBuf::from(blob_file);
+            println!("Single-blob mode: {}", path.display());
+            // Validate that parent directory exists if file doesn't exist
+            if !path.exists() {
+                if let Some(parent) = path.parent() {
+                    if !parent.exists() {
+                        eprintln!("Error: Parent directory {} does not exist", parent.display());
+                        std::process::exit(1);
+                    }
+                }
+                println!("Note: Blob file {} will be created on first init", path.display());
+            }
+            ServerMode::Single(path)
+        },
+        (None, Some(blob_dir), _, _) => {
+            let dir_path = PathBuf::from(blob_dir);
+            println!("Directory mode: {}", dir_path.display());
+            validate_or_create_directory(&dir_path);
+            ServerMode::Directory(dir_path)
+        },
+        (None, None, Ok(blob_file), _) => {
+            let path = PathBuf::from(blob_file);
+            println!("Single-blob mode (env): {}", path.display());
+            if !path.exists() {
+                if let Some(parent) = path.parent() {
+                    if !parent.exists() {
+                        eprintln!("Error: Parent directory {} does not exist", parent.display());
+                        std::process::exit(1);
+                    }
+                }
+                println!("Note: Blob file {} will be created on first init", path.display());
+            }
+            ServerMode::Single(path)
+        },
+        (None, None, _, Ok(blob_dir)) => {
+            let dir_path = PathBuf::from(blob_dir);
+            println!("Directory mode (env): {}", dir_path.display());
+            validate_or_create_directory(&dir_path);
+            ServerMode::Directory(dir_path)
+        },
+        // Default mode: use ./blobs/ directory
+        (None, None, _, _) => {
+            let dir_path = PathBuf::from("./blobs");
+            println!("Default mode: {}", dir_path.display());
+            validate_or_create_directory(&dir_path);
+            ServerMode::Directory(dir_path)
+        },
+        // Error: both blob and blob_dir specified
+        (Some(_), Some(_), _, _) => {
+            eprintln!("Error: Cannot specify both --blob and --blob-dir");
+            std::process::exit(1);
+        }
+    };
     
     println!("Starting server at http://localhost:{}", args.port);
-    println!("Using blob file: {}", blob_path.display());
     
     match local_ip() {
         Ok(ip) => println!("Also available at http://{}:{}", ip, args.port),
@@ -120,11 +247,12 @@ async fn main() {
     
     let state: SharedState = Arc::new(Mutex::new(None));
     let app_context = AppContext {
-        blob_path: blob_path.clone(),
+        mode: mode.clone(),
         state: state.clone(),
     };
     
     let app = axum::Router::new()
+        .route("/api/status", get(status_handler))
         .route("/api/init", post(init_handler))
         .route("/api/unlock", post(unlock_handler))
         .route("/api/logout", post(logout_handler))
@@ -141,9 +269,70 @@ async fn main() {
 
     let addr = SocketAddr::from(([0, 0, 0, 0], args.port));
     let listener = TcpListener::bind(&addr).await.unwrap();
-    println!("\nUnlocking blob file: {}", blob_path.display());
+    match &mode {
+        ServerMode::Single(path) => println!("\nSingle blob mode: {}", path.display()),
+        ServerMode::Directory(dir) => println!("\nDirectory mode: {}", dir.display()),
+    }
     println!("Waiting for client connection and authentication...");
     axum::serve(listener, app).await.unwrap();
+}
+
+/// Status response
+#[derive(Serialize)]
+struct StatusResponse {
+    status: String,
+    mode: String,
+    blob_path: Option<String>,        // for single mode
+    blob_dir: Option<String>,         // for directory mode
+    available_blobs: Option<Vec<String>>, // for directory mode
+    volume_type: Option<String>,
+}
+
+async fn status_handler(
+    Extension(app_context): Extension<AppContext>,
+) -> impl IntoResponse {
+    let guard = app_context.state.lock().unwrap();
+    
+    // Get available blobs for directory mode
+    let (mode_str, blob_path, blob_dir, available_blobs) = match &app_context.mode {
+        ServerMode::Single(path) => {
+            ("single".to_string(), Some(path.to_string_lossy().to_string()), None, None)
+        },
+        ServerMode::Directory(dir) => {
+            let blobs = get_available_blobs(dir);
+            ("directory".to_string(), None, Some(dir.to_string_lossy().to_string()), Some(blobs))
+        }
+    };
+    
+    if let Some(app) = &*guard {
+        let resp: ApiResponse<StatusResponse> = ApiResponse { 
+            success: true, 
+            data: Some(StatusResponse {
+                status: "ready".to_string(),
+                mode: mode_str,
+                blob_path,
+                blob_dir,
+                available_blobs,
+                volume_type: Some(format!("{:?}", app.volume_type)),
+            }), 
+            message: None 
+        };
+        (StatusCode::OK, Json(resp))
+    } else {
+        let resp: ApiResponse<StatusResponse> = ApiResponse { 
+            success: true, 
+            data: Some(StatusResponse {
+                status: "locked".to_string(),
+                mode: mode_str,
+                blob_path,
+                blob_dir,
+                available_blobs,
+                volume_type: None,
+            }), 
+            message: None 
+        };
+        (StatusCode::OK, Json(resp))
+    }
 }
 
 async fn init_handler(
@@ -156,8 +345,40 @@ async fn init_handler(
         return (StatusCode::BAD_REQUEST, Json(resp));
     }
 
-    // Get blob path from the app context
-    let blob_path = app_context.blob_path.clone();
+    // Get blob path based on server mode
+    let blob_path: PathBuf = match &app_context.mode {
+        ServerMode::Single(path) => {
+            // In single mode, use the configured path, ignore payload blob_name
+            if payload.blob_name.is_some() {
+                let resp: ApiResponse<FileList> = ApiResponse { success: false, data: None, message: Some("Cannot specify blob_name in single-blob mode".into()) };
+                return (StatusCode::BAD_REQUEST, Json(resp));
+            }
+            path.clone()
+        },
+        ServerMode::Directory(dir) => {
+            // In directory mode, require blob_name
+            match payload.blob_name {
+                Some(name) => {
+                    if name.is_empty() {
+                        let resp: ApiResponse<FileList> = ApiResponse { success: false, data: None, message: Some("blob_name cannot be empty".into()) };
+                        return (StatusCode::BAD_REQUEST, Json(resp));
+                    }
+                    let blob_path = dir.join(&name);
+                    // Check if file already exists
+                    if blob_path.exists() {
+                        let resp: ApiResponse<FileList> = ApiResponse { success: false, data: None, message: Some(format!("Blob file {} already exists", name)) };
+                        return (StatusCode::BAD_REQUEST, Json(resp));
+                    }
+                    blob_path
+                },
+                None => {
+                    let resp: ApiResponse<FileList> = ApiResponse { success: false, data: None, message: Some("blob_name required in directory mode".into()) };
+                    return (StatusCode::BAD_REQUEST, Json(resp));
+                }
+            }
+        }
+    };
+    
     println!("Initializing blob at: {}", blob_path.display());
 
     let password_s = payload.password_s;
@@ -247,9 +468,42 @@ async fn unlock_handler(
 
     // --- Not unlocked, proceed with unlocking ---
     info!("Unlock handler: State is None, proceeding to call unlock_blob.");
-    // Get blob path from the app context
-    let blob_path = app_context.blob_path.clone();
-    // println!("Unlocking blob at: {}", blob_path.display()); // Redundant with core logging
+    
+    // Get blob path based on server mode
+    let blob_path: PathBuf = match &app_context.mode {
+        ServerMode::Single(path) => {
+            // In single mode, use the configured path, ignore payload blob_name
+            if payload.blob_name.is_some() {
+                let resp: ApiResponse<FileList> = ApiResponse { success: false, data: None, message: Some("Cannot specify blob_name in single-blob mode".into()) };
+                return (StatusCode::BAD_REQUEST, Json(resp));
+            }
+            path.clone()
+        },
+        ServerMode::Directory(dir) => {
+            // In directory mode, require blob_name
+            match payload.blob_name {
+                Some(name) => {
+                    if name.is_empty() {
+                        let resp: ApiResponse<FileList> = ApiResponse { success: false, data: None, message: Some("blob_name cannot be empty".into()) };
+                        return (StatusCode::BAD_REQUEST, Json(resp));
+                    }
+                    let blob_path = dir.join(&name);
+                    // Check if file exists
+                    if !blob_path.exists() {
+                        let resp: ApiResponse<FileList> = ApiResponse { success: false, data: None, message: Some(format!("Blob file {} not found", name)) };
+                        return (StatusCode::NOT_FOUND, Json(resp));
+                    }
+                    blob_path
+                },
+                None => {
+                    let resp: ApiResponse<FileList> = ApiResponse { success: false, data: None, message: Some("blob_name required in directory mode".into()) };
+                    return (StatusCode::BAD_REQUEST, Json(resp));
+                }
+            }
+        }
+    };
+    
+    println!("Unlocking blob at: {}", blob_path.display());
 
     // Unlock blob and get metadata
     match unlock_blob(&blob_path, &payload.password) {

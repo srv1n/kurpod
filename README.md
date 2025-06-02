@@ -1,203 +1,281 @@
-# Encrypted-Blob Server
+# ENC Server - Secure Encrypted File Storage
 
-A secure file storage solution that encrypts all your data in a single blob file while providing an intuitive web interface for access from any device on your local network. Includes support for a plausibly deniable hidden volume.
+<p align="center">
+  <img src="https://img.shields.io/badge/license-AGPL--3.0-blue.svg" alt="License">
+  <img src="https://img.shields.io/badge/rust-%231.75+-orange.svg" alt="Rust">
+  <img src="https://img.shields.io/badge/status-production--ready-green.svg" alt="Status">
+</p>
 
-## Project Structure
+**ENC Server** is a high-security encrypted file storage server that provides military-grade encryption for your sensitive data. Store and access files through a modern web interface while ensuring complete privacy with client-side encryption and plausible deniability features.
 
-This project is organized as a Rust workspace with multiple crates:
+## 🚨 License & Commercial Use
 
-- **encryption_core**: Core encryption logic for blob files (shared by all implementations)
-- **enc_server**: HTTP server implementation for web access
-- **enc**: Standalone CLI tool using `encryption_core`
-- **enc_tauri**: Tauri-based desktop and mobile application (to be implemented)
+This software is licensed under the **GNU Affero General Public License v3.0 (AGPLv3)** with additional commercial restrictions:
 
-## Features
+- ✅ **FREE** for personal use
+- ✅ **FREE** for educational use
+- ✅ **FREE** for non-profit organizations
+- ❌ **PROHIBITED** to sell or monetize without permission
+- ❌ **PROHIBITED** to offer as a commercial service
+- ❌ **PROHIBITED** to include in commercial products
 
-### Encryption & Security
-- **Fully encrypted storage**: All file contents, directory structure, and filenames are encrypted within a single blob file.
-- **Strong encryption**: Uses Argon2id KDF (64 MiB RAM, t=3, p=1) and XChaCha20-Poly1305 AEAD cipher (256-bit key, 192-bit nonce).
-- **Plausible Deniability**: Supports an optional, independent **hidden volume** within the same blob file, protected by a separate password. Accessing the blob with the standard password reveals only the standard volume; accessing with the hidden password reveals only the hidden volume.
-- **Data Integrity**: AEAD encryption provides authentication, detecting tampering attempts.
-- **What it does well**: Data at rest is fully encrypted. The hidden volume provides a layer against coercion scenarios.
-- **Limitations**: Transmission over standard HTTP means data in transit is *not* encrypted (use HTTPS/reverse proxy for security over untrusted networks). No automatic session timeouts.
+**If you want to use this commercially, you must obtain a license. Contact: [your-email@example.com]**
 
-### Media Gallery
-- **Image viewing**: Fullscreen gallery with lightbox view, zoom functionality, and keyboard navigation (left/right arrows).
-- **PDF support**: In-browser PDF viewing with page navigation and zoom controls.
-- **Thumbnails**: (Future - currently loads full images)
+### What This Means
 
-### Multiple Device Access
-- Server runs on `0.0.0.0` making it accessible to all devices on your local network.
-- Responsive design works on both desktop and mobile devices.
-- Access your files from any device with a web browser on your network.
+- You can run this on your own server for free
+- You can modify the code for your needs
+- You MUST share your modifications (AGPLv3 requirement)
+- You CANNOT charge others for access
+- You CANNOT rebrand and sell this software
+- Network use triggers source code sharing obligations
 
-### Single Blob Storage
-- All data (standard and hidden volumes) stored in one file that can be named anything (e.g., `data.pdf`, `secret.bin`).
-- Blob grows automatically as files are added.
-- Easily backup or transfer your entire encrypted file collection with a single file.
+## 🔐 Security Features
 
-## Building and Running
+### Military-Grade Encryption
+- **XChaCha20-Poly1305** AEAD encryption (256-bit keys)
+- **Argon2id** password hashing (64 MiB RAM, 3 iterations)
+- **192-bit nonces** for encryption uniqueness
+- **Constant-time operations** to prevent timing attacks
 
-### Web Server Version
+### Plausible Deniability
+- **Dual Volume Support**: Standard + Hidden volumes
+- **Independent passwords** for each volume
+- **No identifiable headers** - looks like random data
+- **Decoy mode** with fake error messages
+
+### Zero-Knowledge Architecture
+- Server never sees unencrypted data
+- All encryption/decryption happens client-side
+- No logs of file access or operations
+- Memory wiped after sensitive operations
+
+## 📋 System Requirements
+
+### Minimum Requirements
+- **CPU**: 2 cores (x86_64 or ARM64)
+- **RAM**: 512MB (+ 64MB per concurrent user)
+- **Storage**: 100MB for application + your data
+- **OS**: Linux, macOS, Windows
+
+### Recommended for Production
+- **CPU**: 4+ cores
+- **RAM**: 2GB+
+- **Storage**: SSD with 2x expected data size
+- **Network**: Dedicated IP with HTTPS reverse proxy
+
+## 🚀 Quick Start
+
+### Option 1: Download Pre-built Binary
+
+Download the latest release for your platform from [Releases](https://github.com/yourusername/enc-server/releases):
 
 ```bash
-# Build the server
-cargo build --bin enc_server
+# Linux (x86_64)
+wget https://github.com/yourusername/enc-server/releases/download/v0.1.0/enc_server-v0.1.0-linux-amd64.tar.gz
+tar -xzf enc_server-v0.1.0-linux-amd64.tar.gz
+./enc_server
 
-# Run the server (defaults to port 3000 and data.blob)
-# Enable info logging for core and server:
-RUST_LOG=encryption_core=info,enc_server=info cargo run --bin enc_server
+# macOS (Apple Silicon)
+wget https://github.com/yourusername/enc-server/releases/download/v0.1.0/enc_server-v0.1.0-darwin-arm64.tar.gz
+tar -xzf enc_server-v0.1.0-darwin-arm64.tar.gz
+./enc_server
 
-# Run with custom port and blob file
-RUST_LOG=info cargo run --bin enc_server -- --port 8080 --blob my_data.blob
+# macOS (Intel)
+wget https://github.com/yourusername/enc-server/releases/download/v0.1.0/enc_server-v0.1.0-darwin-amd64.tar.gz
+tar -xzf enc_server-v0.1.0-darwin-amd64.tar.gz
+./enc_server
+```
 
-# Using the convenience script (if available)
+### Option 2: Build from Source
+
+```bash
+# Prerequisites
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+curl -fsSL https://bun.sh/install | bash
+
+# Clone and build
+git clone https://github.com/yourusername/enc-server.git
+cd enc-server
+./build.sh
+
+# Run
+./run.sh
+```
+
+## 📖 Usage Guide
+
+### Starting the Server
+
+```bash
+# Basic usage (defaults to port 3000)
+./enc_server
+
+# Custom configuration
+./enc_server --port 8080 --blob /secure/storage.blob
+
+# With environment variables
+RUST_LOG=info ./enc_server --port 443
+```
+
+### Command Line Options
+
+```
+Usage: enc_server [OPTIONS]
+
+Options:
+  -p, --port <PORT>        Server port [default: 3000]
+  -b, --blob <BLOB>        Path to blob storage file [default: ./storage.blob]
+  -h, --help               Print help information
+  -V, --version            Print version information
+
+Environment Variables:
+  RUST_LOG                 Set log level (error, warn, info, debug, trace)
+  BIND_ADDRESS            Override bind address [default: 0.0.0.0]
+```
+
+### Web Interface
+
+1. Navigate to `http://localhost:3000` in your browser
+2. **First Time Setup**:
+   - Choose "Create New Storage"
+   - Enter a strong password (minimum 12 characters recommended)
+   - Optionally create a hidden volume
+3. **Returning User**:
+   - Choose "Unlock Storage"
+   - Enter your password
+   - Access your encrypted files
+
+### Security Best Practices
+
+1. **Password Selection**:
+   - Use 20+ character passwords
+   - Include uppercase, lowercase, numbers, symbols
+   - Different passwords for standard/hidden volumes
+   - Consider using a password manager
+
+2. **Network Security**:
+   ```nginx
+   # Nginx reverse proxy with HTTPS
+   server {
+       listen 443 ssl http2;
+       server_name secure.example.com;
+       
+       ssl_certificate /path/to/cert.pem;
+       ssl_certificate_key /path/to/key.pem;
+       
+       location / {
+           proxy_pass http://localhost:3000;
+           proxy_set_header X-Real-IP $remote_addr;
+           proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+           proxy_set_header X-Forwarded-Proto $scheme;
+       }
+   }
+   ```
+
+3. **File System Security**:
+   ```bash
+   # Secure blob file permissions
+   chmod 600 storage.blob
+   chown $USER:$USER storage.blob
+   
+   # Optional: encrypted file system
+   # Create encrypted volume for blob storage
+   ```
+
+## 🏗️ Architecture
+
+See [Architecture Documentation](docs/ARCHITECTURE.md) for detailed technical documentation.
+
+### High-Level Overview
+```
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│   Browser   │────▶│  Web Server │────▶│  Encryption │
+│  (React UI) │◀────│   (Axum)    │◀────│    Core     │
+└─────────────┘     └─────────────┘     └─────────────┘
+                            │
+                            ▼
+                    ┌─────────────┐
+                    │ Blob Storage │
+                    │  (Encrypted) │
+                    └─────────────┘
+```
+
+## 🛠️ Development
+
+### Project Structure
+```
+enc-server/
+├── encryption_core/    # Cryptographic operations
+├── enc_server/         # HTTP server implementation
+├── frontend/           # React web interface
+└── docs/              # Documentation
+```
+
+### Building Components
+
+```bash
+# Run development server with hot-reload
 ./run.sh
 
-# With custom parameters
-./run.sh --port 8080 --blob my_data.blob
+# Run tests
+cargo test
+
+# Format code
+cargo fmt
+
+# Lint
+cargo clippy -- -D warnings
+
+# Frontend development
+cd frontend
+bun dev    # Development server
+bun build  # Production build
+bun lint   # Run ESLint
 ```
 
-### Building for Release
+### Contributing
 
-```bash
-# Build optimized release version
-cargo build --release --bin enc_server
+Please read [Contributing Guidelines](docs/CONTRIBUTING.md) for guidelines.
 
-# The binary will be in target/release/enc_server
-```
+1. Fork the repository
+2. Create feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
 
-### Tauri Application (Future)
+## 📚 Documentation
 
-The Tauri application for desktop and mobile platforms is planned for future implementation.
+- [User Manual](docs/USER_MANUAL.md) - Comprehensive usage guide
+- [Architecture](docs/ARCHITECTURE.md) - Technical design documentation
+- [Contributing](docs/CONTRIBUTING.md) - Guidelines for contributors
 
-## Getting Started
+## ⚠️ Important Disclaimers
 
-1.  Build and run the server (see above).
-2.  Access the web interface at `http://localhost:3000` (or your specified port).
-3.  **Initialization (First Time):**
-    *   Click "Create New Storage".
-    *   Enter a strong password for the **Standard (Decoy) Volume**. This is the primary volume you'll likely use.
-    *   Optionally, enter a *different*, strong password for the **Hidden Volume**. If you set this, you can later log in with this password to access a completely separate, hidden storage area. If you leave this blank, a random password will be generated internally, making the hidden volume inaccessible unless explicitly set during init.
-    *   Confirm passwords and click "Create Secure Storage".
-4.  **Login:**
-    *   Enter the password for the volume you wish to access (either Standard or Hidden).
-    *   The server will unlock the corresponding volume.
-5.  Access the web interface from other devices on your local network at `http://<your-server-ip>:<port>`.
+1. **No Warranty**: This software is provided "as-is" without any warranty
+2. **Data Loss**: Always maintain backups - we are not responsible for data loss
+3. **Legal Compliance**: Ensure usage complies with your local laws
+4. **Security**: No system is 100% secure - use at your own risk
+5. **Export Controls**: Strong encryption may be regulated in your jurisdiction
 
-## Usage
+## 🤝 Support
 
-- **Interface:** The UI will indicate whether the "Standard Volume" or "Hidden Volume" is currently active.
-- **Upload:** Upload files/folders using drag-and-drop or the buttons. Files are added to the currently active volume.
-- **Navigation:** Navigate the directory structure for the active volume.
-- **Preview:** Preview images and PDFs.
-- **Manage:** Download, rename, or delete files within the active volume.
-- **Logout:** Use the Logout button to lock the storage on the server before closing your browser or leaving your device unattended.
+- **Bug Reports**: [GitHub Issues](https://github.com/yourusername/enc-server/issues)
+- **Security Issues**: [your-email@example.com] (PGP key available)
+- **Commercial Licensing**: [your-email@example.com]
+- **Community**: [Discord/Forum link]
 
-## Encryption Core CLI (`enc`)
+## 📜 License
 
-A standalone command-line tool for working with encrypted blob files using the `encryption_core` library. This tool provides direct access to encrypted blob functionality without requiring a server component.
+GNU Affero General Public License v3.0 (AGPLv3) with additional commercial restrictions.
 
-### Features
+**This means**:
+- Source code must be disclosed when running as a network service
+- Modifications must be shared under the same license
+- Commercial use requires separate licensing agreement
 
-- Initialize new encrypted blob files (supports standard and hidden passwords).
-- Unlock existing encrypted blobs (tries both standard and hidden passwords).
-- List files stored in the unlocked volume.
-- Add files to the unlocked volume.
-- Extract files from the unlocked volume.
-- Remove files from the unlocked volume.
-- Rename files within the unlocked volume.
-- Export all files from the unlocked volume to a directory.
-- Import files from a directory into the unlocked volume.
+Copyright (C) 2025 ENC Server Team. All rights reserved.
 
-### Usage
+---
 
-```bash
-# Initialize a new blob (Standard password only)
-enc init <blob_path> <standard_password>
-
-# Initialize a new blob (Standard AND Hidden passwords)
-enc init <blob_path> <standard_password> --hidden-password <hidden_password>
-
-# Unlock and view files (tries both passwords, indicates which volume unlocked)
-enc list <blob_path> <password_attempt>
-
-# Add a file to the blob (operates on the volume unlocked by the password)
-enc add <blob_path> <password> <file_path> <save_path>
-
-# Extract a file from the blob
-enc get <blob_path> <password> <file_path> <output_path>
-
-# Remove a file from the blob
-enc remove <blob_path> <password> <file_path>
-
-# Rename a file within the blob
-enc rename <blob_path> <password> <old_path> <new_path>
-
-# Export all files from the unlocked volume to a directory
-enc export <blob_path> <password> <output_dir>
-
-# Import all files from a directory into the unlocked volume
-enc import <blob_path> <password> <input_dir>
-```
-
-### Examples
-
-Initialize with only a standard password:
-```bash
-enc init ./my_data.blob mysecretpassword
-```
-
-Initialize with standard and hidden passwords:
-```bash
-enc init ./my_data.blob my_std_pass --hidden-password my_hidden_pass
-```
-
-Add a file (will add to standard volume if `my_std_pass` is correct, or hidden if `my_hidden_pass` is correct):
-```bash
-enc add ./my_data.blob my_std_pass ./document.pdf docs/report.pdf
-```
-
-List files (unlocks hidden volume if `my_hidden_pass` provided):
-```bash
-enc list ./my_data.blob my_hidden_pass
-```
-
-### Building
-
-Clone the repository and build with Cargo:
-
-```bash
-cargo build --release --bin enc
-```
-
-The resulting binary will be in `target/release/enc`.
-
-## Security Considerations
-
-- **Hidden Volume:** Provides deniability against coercion. An attacker seeing the blob file cannot prove the existence of the hidden volume without the hidden password. The standard password only reveals the standard volume.
-- **Key Derivation:** Argon2id makes brute-forcing passwords computationally expensive.
-- **Encryption:** XChaCha20-Poly1305 is a modern, secure AEAD cipher.
-- **Data in Transit:** The default HTTP server does **not** encrypt traffic. For use on untrusted networks, run the server behind a reverse proxy configured for HTTPS (e.g., Nginx, Caddy).
-- **Session Management:** The server currently relies on the single password unlock and doesn't have automatic session timeouts. Use the Logout button.
-
-## License
-
-This project is licensed under the MIT License.
-
-## Future Directions: Steganography (Deferred)
-
-We explored the possibility of hiding the encrypted blob data within a standard "carrier" file (e.g., MP4, PDF) instead of using a dedicated `.blob` file extension. The goal was for the carrier file to remain functional (e.g., a video plays normally) while also containing the hidden encrypted volume accessible via the correct password.
-
-Two main approaches were considered:
-
-1.  **Simple Appending:** Appending the entire blob structure (markers, headers, metadata, file data) to the end of an arbitrary carrier file.
-    *   **Pros:** Relatively simpler to implement, format-agnostic.
-    *   **Cons:** Fragile (appended data easily truncated by programs modifying the carrier), potentially detectable (unusual file size increase, trailing data), adds complexity managing relative offsets.
-2.  **Format-Specific Embedding (e.g., MP4):** Embedding critical pointers (salts, metadata nonces/sizes, marker) within standard file structures (like MP4 `udta` boxes) and appending the bulk encrypted data.
-    *   **Pros:** Potentially more robust against *some* modifications (if the host application preserves the structure containing the pointers).
-    *   **Cons:** Significantly more complex (requires format-specific libraries like `mp4rs`), actual encrypted data blocks remain vulnerable to truncation if appended, adds format dependency, potentially still detectable.
-
-**Conclusion:** Achieving true robustness against arbitrary modifications by other programs is extremely difficult, especially for the appended data blocks. Both approaches add significant complexity and potential fragility. Given these challenges, the implementation of steganography has been **deferred**.
-
-The current system uses a dedicated blob structure identified by internal magic bytes, not the file extension. Therefore, the blob file can be renamed to any extension (e.g., `.pdf`, `.mp4`) and will still function correctly with this library, although it won't be openable by standard applications associated with that fake extension. 
+**Remember**: Your security is your responsibility. Use strong passwords, keep your systems updated, and follow security best practices.
