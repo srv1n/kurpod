@@ -12,7 +12,7 @@ env:
 jobs:
   test:
     name: Test Suite
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -28,7 +28,7 @@ jobs:
 
   lint:
     name: Lint
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -55,7 +55,7 @@ jobs:
       matrix:
         include:
           - target: x86_64-unknown-linux-gnu
-            os: ubuntu-22.04
+            os: ubuntu-24.04
           - target: x86_64-apple-darwin
             os: macos-13
           - target: aarch64-apple-darwin
@@ -95,6 +95,54 @@ jobs:
       
       - name: Build binary
         run: cargo build --release --target ${{ matrix.target }} -p enc_server
+      
+      # macOS code signing
+      - name: Import Code-Signing Certificates (macOS)
+        if: runner.os == 'macOS'
+        uses: Apple-Actions/import-codesign-certs@v3
+        with:
+          p12-file-base64: ${{ secrets.APPLE_DEVELOPER_CERTIFICATE_P12_BASE64 }}
+          p12-password: ${{ secrets.APPLE_DEVELOPER_CERTIFICATE_PASSWORD }}
+      
+      - name: Sign macOS binary
+        if: runner.os == 'macOS'
+        run: |
+          codesign --force --sign "${{ secrets.APPLE_DEVELOPER_CERTIFICATE_ID }}" \
+            --options runtime \
+            --entitlements .github/entitlements.plist \
+            target/${{ matrix.target }}/release/enc_server
+          
+          # Verify the signature
+          codesign --verify --verbose target/${{ matrix.target }}/release/enc_server
+      
+      # Windows code signing
+      - name: Sign Windows binary
+        if: runner.os == 'Windows' && secrets.WINDOWS_CERTIFICATE != ''
+        run: |
+          # Decode certificate from base64
+          echo "${{ secrets.WINDOWS_CERTIFICATE }}" | base64 -d > cert.p12
+          
+          # Sign the binary
+          signtool sign /f cert.p12 /p "${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}" /tr http://timestamp.digicert.com /td sha256 /fd sha256 "target/${{ matrix.target }}/release/enc_server.exe"
+          
+          # Verify signature
+          signtool verify /pa "target/${{ matrix.target }}/release/enc_server.exe"
+          
+          # Clean up certificate file
+          rm cert.p12
+      
+      # Linux GPG signing
+      - name: Sign Linux binary with GPG
+        if: runner.os == 'Linux'
+        run: |
+          # Import GPG key
+          echo "${{ secrets.GPG_PRIVATE_KEY }}" | gpg --batch --import
+          
+          # Sign the binary (creates .sig file)
+          gpg --armor --detach-sign --local-user "${{ secrets.GPG_KEY_ID }}" "target/${{ matrix.target }}/release/enc_server"
+          
+          # Verify signature
+          gpg --verify "target/${{ matrix.target }}/release/enc_server.asc" "target/${{ matrix.target }}/release/enc_server"
       
       - name: Upload build artifact
         uses: actions/upload-artifact@v4

@@ -59,3 +59,8 @@ cleanup_ios.sh
 clear.sh
 
 enc_tauri/
+*.key
+private.key
+public.key
+*.p12
+*.b64
