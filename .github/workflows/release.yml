@@ -14,10 +14,11 @@ env:
 jobs:
   create-release:
     name: Create Release
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     outputs:
       upload_url: ${{ steps.create_release.outputs.upload_url }}
       version: ${{ steps.get_version.outputs.version }}
+      release_created: ${{ steps.check_release.outputs.exists == 'false' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -28,7 +29,21 @@ jobs:
         id: get_version
         run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
 
+      - name: Check if release already exists
+        id: check_release
+        run: |
+          if gh release view ${{ github.ref_name }} >/dev/null 2>&1; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "Release ${{ github.ref_name }} already exists"
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "Release ${{ github.ref_name }} does not exist"
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Generate changelog
+        if: steps.check_release.outputs.exists == 'false'
         id: changelog
         run: |
           if [ $(git tag --list | wc -l) -eq 1 ]; then
@@ -47,8 +62,8 @@ jobs:
 
           ### 📥 Download Instructions
           1. Download the appropriate binary for your platform below
-          2. Extract the archive: \`tar -xzf enc_server-*.tar.gz\`
-          3. Run the server: \`./enc_server\`
+          2. Extract the archive: \`tar -xzf enc_server-*.tar.gz\` (or unzip \`*.zip\` for Windows)
+          3. Run the server: \`./enc_server\` (or \`enc_server.exe\` on Windows)
           4. Open your browser to \`http://localhost:3000\`
 
           ### 🔐 Security Features
@@ -65,7 +80,7 @@ jobs:
           ### 📋 Platform Support
           - **Linux x86_64** (GNU and musl libc)
           - **macOS** (Intel and Apple Silicon)
-          - **Windows** (x86_64)
+          - **Windows** (x86_64 and ARM64)
 
           ⚠️ **Security Notice**: This software is licensed under AGPLv3. Commercial use requires separate licensing.
           EOF
@@ -82,8 +97,8 @@ jobs:
 
           ### 📥 Download Instructions
           1. Download the appropriate binary for your platform below
-          2. Extract: \`tar -xzf enc_server-*.tar.gz\`
-          3. Run: \`./enc_server\`
+          2. Extract: \`tar -xzf enc_server-*.tar.gz\` (or unzip \`*.zip\` for Windows)
+          3. Run: \`./enc_server\` (or \`enc_server.exe\` on Windows)
 
           **Full Changelog**: https://github.com/${{ github.repository }}/compare/$PREV_TAG...${{ github.ref_name }}
           EOF
@@ -94,6 +109,7 @@ jobs:
           echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Create Release
+        if: steps.check_release.outputs.exists == 'false'
         id: create_release
         uses: softprops/action-gh-release@v1
         with:
@@ -108,35 +124,36 @@ jobs:
     name: Build and Upload (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
     needs: create-release
+    if: needs.create-release.outputs.release_created == 'true' || needs.create-release.outputs.release_created == ''
     strategy:
       fail-fast: false
       matrix:
         include:
           # Linux builds
           - target: x86_64-unknown-linux-gnu
-            os: ubuntu-20.04
+            os: ubuntu-22.04
             name: linux-amd64
             cross: false
           - target: x86_64-unknown-linux-musl
-            os: ubuntu-20.04
+            os: ubuntu-22.04
             name: linux-amd64-musl
             cross: false
           - target: aarch64-unknown-linux-gnu
-            os: ubuntu-20.04
+            os: ubuntu-22.04
             name: linux-arm64
             cross: true
           - target: aarch64-unknown-linux-musl
-            os: ubuntu-20.04
+            os: ubuntu-22.04
             name: linux-arm64-musl
             cross: true
           
           # macOS builds
           - target: x86_64-apple-darwin
-            os: macos-12
+            os: macos-13
             name: darwin-amd64
             cross: false
           - target: aarch64-apple-darwin
-            os: macos-12
+            os: macos-13
             name: darwin-arm64
             cross: false
           
@@ -209,7 +226,27 @@ jobs:
           mkdir release-assets
           copy "target\${{ matrix.target }}\release\enc_server.exe" "release-assets\"
           cd release-assets
-          7z a "enc_server-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.zip" enc_server.exe
+          
+          # Create README for Windows
+          echo "ENC Server v${{ needs.create-release.outputs.version }} - ${{ matrix.name }}" > README.txt
+          echo "" >> README.txt
+          echo "## Quick Start" >> README.txt
+          echo "1. Extract this zip file" >> README.txt
+          echo "2. Run: enc_server.exe" >> README.txt
+          echo "3. Open browser: http://localhost:3000" >> README.txt
+          echo "" >> README.txt
+          echo "## Options" >> README.txt
+          echo "enc_server.exe --help              # Show all options" >> README.txt
+          echo "enc_server.exe --port 8080         # Use custom port" >> README.txt
+          echo "enc_server.exe --blob data.blob    # Use custom storage file" >> README.txt
+          echo "" >> README.txt
+          echo "## Documentation" >> README.txt
+          echo "https://github.com/${{ github.repository }}" >> README.txt
+          echo "" >> README.txt
+          echo "## License" >> README.txt
+          echo "AGPLv3 - Free for personal use, commercial licensing available" >> README.txt
+          
+          7z a "enc_server-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.zip" enc_server.exe README.txt
           echo "ASSET_PATH=release-assets/enc_server-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.zip" >> $env:GITHUB_ENV
           echo "ASSET_NAME=enc_server-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.zip" >> $env:GITHUB_ENV
           echo "CONTENT_TYPE=application/zip" >> $env:GITHUB_ENV
@@ -277,8 +314,9 @@ jobs:
 
   create-checksums:
     name: Create Combined Checksums
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     needs: [create-release, build-and-upload]
+    if: needs.create-release.outputs.release_created == 'true' || needs.create-release.outputs.release_created == ''
     steps:
       - name: Checkout
         uses: actions/checkout@v4

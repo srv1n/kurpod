@@ -14,7 +14,7 @@ permissions:
 jobs:
   version-and-release:
     name: Auto Version and Create Release
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     if: "!contains(github.event.head_commit.message, '[skip-release]')"
     
     steps:
@@ -90,7 +90,20 @@ jobs:
           NEW_VERSION="$MAJOR.$MINOR.$PATCH"
           echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
 
+      - name: Check if version already exists
+        id: check_version
+        run: |
+          NEW_VERSION="${{ steps.new_version.outputs.version }}"
+          if git tag --list | grep -q "v$NEW_VERSION"; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "Tag v$NEW_VERSION already exists"
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "Tag v$NEW_VERSION does not exist"
+          fi
+
       - name: Update Cargo.toml versions
+        if: steps.check_version.outputs.exists == 'false'
         run: |
           NEW_VERSION="${{ steps.new_version.outputs.version }}"
           
@@ -104,12 +117,14 @@ jobs:
           sed -i "s/version = \".*\"/version = \"$NEW_VERSION\"/" encryption_core/Cargo.toml
 
       - name: Update frontend package.json version
+        if: steps.check_version.outputs.exists == 'false'
         run: |
           NEW_VERSION="${{ steps.new_version.outputs.version }}"
           cd frontend
           sed -i "s/\"version\": \".*\"/\"version\": \"$NEW_VERSION\"/" package.json
 
       - name: Commit version updates
+        if: steps.check_version.outputs.exists == 'false'
         run: |
           NEW_VERSION="${{ steps.new_version.outputs.version }}"
           git config --local user.email "action@github.com"
@@ -119,6 +134,7 @@ jobs:
           git push
 
       - name: Create and push tag
+        if: steps.check_version.outputs.exists == 'false'
         run: |
           NEW_VERSION="${{ steps.new_version.outputs.version }}"
           git tag "v$NEW_VERSION"
@@ -126,7 +142,11 @@ jobs:
 
       - name: Summary
         run: |
-          echo "🚀 Version bumped from ${{ steps.current_version.outputs.current }} to ${{ steps.new_version.outputs.version }}"
-          echo "📝 Bump type: ${{ steps.version_bump.outputs.bump_type }}"
-          echo "🏷️ Tagged as: v${{ steps.new_version.outputs.version }}"
-          echo "📦 Release workflow will be triggered automatically"
+          if [ "${{ steps.check_version.outputs.exists }}" == "false" ]; then
+            echo "🚀 Version bumped from ${{ steps.current_version.outputs.current }} to ${{ steps.new_version.outputs.version }}"
+            echo "📝 Bump type: ${{ steps.version_bump.outputs.bump_type }}"
+            echo "🏷️ Tagged as: v${{ steps.new_version.outputs.version }}"
+            echo "📦 Release workflow will be triggered automatically"
+          else
+            echo "ℹ️ Version ${{ steps.new_version.outputs.version }} already exists, skipping release"
+          fi

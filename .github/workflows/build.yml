@@ -12,7 +12,7 @@ env:
 jobs:
   test:
     name: Test Suite
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -28,7 +28,7 @@ jobs:
 
   lint:
     name: Lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -55,11 +55,15 @@ jobs:
       matrix:
         include:
           - target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
+            os: ubuntu-22.04
           - target: x86_64-apple-darwin
-            os: macos-latest
+            os: macos-13
           - target: aarch64-apple-darwin
-            os: macos-latest
+            os: macos-13
+          - target: x86_64-pc-windows-msvc
+            os: windows-2022
+          - target: aarch64-pc-windows-msvc
+            os: windows-2022
 
     steps:
       - name: Checkout
@@ -96,4 +100,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: enc_server-${{ matrix.target }}
-          path: target/${{ matrix.target }}/release/enc_server${{ matrix.target == 'x86_64-pc-windows-msvc' && '.exe' || '' }}
+          path: target/${{ matrix.target }}/release/enc_server${{ matrix.target == 'x86_64-pc-windows-msvc' && '.exe' || matrix.target == 'aarch64-pc-windows-msvc' && '.exe' || '' }}
