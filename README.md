@@ -68,23 +68,38 @@ This software is licensed under the **GNU Affero General Public License v3.0 (AG
 
 ### Option 1: Download Pre-built Binary
 
-Download the latest release for your platform from [Releases](https://github.com/yourusername/enc-server/releases):
+#### Quick Install (Linux/macOS)
+```bash
+# Automatic installation
+curl -sSf https://github.com/yourusername/enc-server/releases/latest/download/install.sh | bash
+
+# Manual verification
+curl -sSf https://github.com/yourusername/enc-server/releases/latest/download/install.sh > install.sh
+chmod +x install.sh && ./install.sh
+```
+
+#### Manual Download
+Download from [Releases](https://github.com/yourusername/enc-server/releases) for your platform:
+
+**Linux:**
+- `enc_server-vX.X.X-linux-amd64.tar.gz` (Standard Linux)
+- `enc_server-vX.X.X-linux-arm64.tar.gz` (ARM64/Raspberry Pi)
+- `enc_server-vX.X.X-linux-amd64-musl.tar.gz` (Alpine Linux)
+
+**macOS:**
+- `enc_server-vX.X.X-darwin-amd64.tar.gz` (Intel Macs)
+- `enc_server-vX.X.X-darwin-arm64.tar.gz` (M1/M2/M3 Macs)
+
+**Windows:**
+- `enc_server-vX.X.X-windows-amd64.zip` (Standard Windows)
+- `enc_server-vX.X.X-windows-arm64.zip` (ARM Windows)
 
 ```bash
-# Linux (x86_64)
-wget https://github.com/yourusername/enc-server/releases/download/v0.1.0/enc_server-v0.1.0-linux-amd64.tar.gz
-tar -xzf enc_server-v0.1.0-linux-amd64.tar.gz
+# Extract and run (Linux/macOS)
+tar -xzf enc_server-*.tar.gz
 ./enc_server
 
-# macOS (Apple Silicon)
-wget https://github.com/yourusername/enc-server/releases/download/v0.1.0/enc_server-v0.1.0-darwin-arm64.tar.gz
-tar -xzf enc_server-v0.1.0-darwin-arm64.tar.gz
-./enc_server
-
-# macOS (Intel)
-wget https://github.com/yourusername/enc-server/releases/download/v0.1.0/enc_server-v0.1.0-darwin-amd64.tar.gz
-tar -xzf enc_server-v0.1.0-darwin-amd64.tar.gz
-./enc_server
+# Windows: Extract ZIP and run enc_server.exe
 ```
 
 ### Option 2: Build from Source
