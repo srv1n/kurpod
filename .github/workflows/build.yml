@@ -115,22 +115,6 @@ jobs:
           # Verify the signature
           codesign --verify --verbose target/${{ matrix.target }}/release/enc_server
       
-      # Windows code signing
-      - name: Sign Windows binary
-        if: runner.os == 'Windows' && secrets.WINDOWS_CERTIFICATE != ''
-        run: |
-          # Decode certificate from base64
-          echo "${{ secrets.WINDOWS_CERTIFICATE }}" | base64 -d > cert.p12
-          
-          # Sign the binary
-          signtool sign /f cert.p12 /p "${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}" /tr http://timestamp.digicert.com /td sha256 /fd sha256 "target/${{ matrix.target }}/release/enc_server.exe"
-          
-          # Verify signature
-          signtool verify /pa "target/${{ matrix.target }}/release/enc_server.exe"
-          
-          # Clean up certificate file
-          rm cert.p12
-      
       # Linux GPG signing
       - name: Sign Linux binary with GPG
         if: runner.os == 'Linux'
