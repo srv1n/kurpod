@@ -15,16 +15,16 @@ encryption_core = { path = "../encryption_core" }
 # enc = { path = ".." }
 
 # Web server dependencies
-axum = "0.8"
-axum-extra = { version = "0.0.1"] }
-tokio = { version = "0.0.1"] }
-tower-http = { version = "0.0.1"] }
-tower = { version = "0.0.1"] }
+axum = "0.8.3"
+axum-extra = { version = "0.10.1", features = ["typed-header", "multipart"] }
+tokio = { version = "1.45.1", features = ["full"] }
+tower-http = { version = "0.6.2", features = ["cors", "fs", "trace"] }
+tower = { version = "0.5.2", features = ["util"] }
 
 # CLI and utilities
-clap = { version = "0.0.1"] }
-local-ip-address = "0.6"
-once_cell = "1"
+clap = { version = "4.5.37", features = ["derive"] }
+local-ip-address = "0.6.3"
+once_cell = "1.20.2"
 
 # Shared dependencies from workspace
 serde = { workspace = true }
@@ -33,9 +33,9 @@ rand = { workspace = true }
 rand_core = { workspace = true }
 anyhow = { workspace = true }
 mime_guess = { workspace = true }
-hex = "0.4"
+hex = "0.4.3"
 log = { workspace = true }
-env_logger = "0.11"
+env_logger = "0.11.6"
 
 [build-dependencies]
 

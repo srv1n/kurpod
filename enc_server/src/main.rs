@@ -734,7 +734,7 @@ async fn batch_upload_handler(
     
     let mut file_count = 0;
     let mut total_size = 0;
-    let mut current_batch_files = Vec::new();
+    let mut current_batch_files: Vec<(String, Vec<u8>)> = Vec::new();
     
     // Process multipart data
     while let Ok(Some(field)) = multipart.next_field().await {
@@ -884,7 +884,7 @@ async fn upload_handler(
     println!("Upload started, processing multipart data");
     let mut file_count = 0;
     let mut total_size = 0;
-    let mut uploaded_files = Vec::new();
+    let mut uploaded_files: Vec<(String, Vec<u8>)> = Vec::new();
     
     // Process multipart without holding the lock
     while let Ok(Some(field)) = multipart.next_field().await {
