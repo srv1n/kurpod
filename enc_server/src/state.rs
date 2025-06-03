@@ -7,4 +7,4 @@ pub struct AppState {
     pub metadata: MetadataMap,
     pub derived_key: [u8; 32], // Store the derived key to avoid recalculation
     pub volume_type: VolumeType, // Track which volume is unlocked
-} 
+}

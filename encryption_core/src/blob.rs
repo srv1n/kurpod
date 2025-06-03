@@ -1,14 +1,11 @@
-
 use anyhow::{anyhow, Result};
 use argon2::{Argon2, Params};
 use bincode;
 use chacha20poly1305::{
     aead::{Aead, AeadCore, KeyInit},
-    Key, 
-    XChaCha20Poly1305,
-    XNonce, 
+    Key, XChaCha20Poly1305, XNonce,
 };
-use log::{info, warn, error}; 
+use log::{error, info, warn};
 use mime_guess; // Make sure 'mime_guess' is in Cargo.toml
 use rand::rngs::OsRng;
 use rand::RngCore;
@@ -70,12 +67,12 @@ pub type MetadataMap = HashMap<String, FileMetadata>;
 struct StandardHeaderInfo {
     salt: [u8; SALT_LEN],
     nonce: [u8; XNONCE_LEN], // Metadata nonce
-    size: u64,              // Metadata size
+    size: u64,               // Metadata size
 }
 struct HiddenHeaderInfo {
     salt: [u8; SALT_LEN],
     nonce: [u8; XNONCE_LEN], // Metadata nonce
-    size: u64,              // Metadata size
+    size: u64,               // Metadata size
 }
 
 // --- Cryptographic Functions ---
@@ -83,8 +80,8 @@ struct HiddenHeaderInfo {
 /// Derives a 32-byte key from a password and salt using Argon2id.
 /// Uses recommended parameters: 64 MiB memory, 3 iterations, 1 parallelism.
 fn derive_key(password: &str, salt: &[u8]) -> Result<[u8; 32]> {
-    let params = Params::new(65536, 3, 1, None)
-        .map_err(|e| anyhow!("argon2 params error: {}", e))?;
+    let params =
+        Params::new(65536, 3, 1, None).map_err(|e| anyhow!("argon2 params error: {}", e))?;
     let argon2 = Argon2::default();
     let mut key = [0u8; 32];
     argon2
@@ -106,15 +103,22 @@ fn read_standard_header(file: &mut File) -> Result<StandardHeaderInfo> {
     // Verify Magic Bytes
     let mut magic = [0u8; MAGIC.len()];
     file.read_exact(&mut magic)?;
-    if magic != *MAGIC { return Err(anyhow!("Invalid blob format")); }
+    if magic != *MAGIC {
+        return Err(anyhow!("Invalid blob format"));
+    }
     // Verify Version
     let mut ver = [0u8; 1];
     file.read_exact(&mut ver)?;
-    if ver[0] != VERSION { return Err(anyhow!("Unsupported blob version (requires v{})", VERSION)); }
+    if ver[0] != VERSION {
+        return Err(anyhow!("Unsupported blob version (requires v{})", VERSION));
+    }
     // Read Standard Header fields
-    let mut salt = [0u8; SALT_LEN]; file.read_exact(&mut salt)?;
-    let mut nonce = [0u8; XNONCE_LEN]; file.read_exact(&mut nonce)?;
-    let mut size_bytes = [0u8; 8]; file.read_exact(&mut size_bytes)?;
+    let mut salt = [0u8; SALT_LEN];
+    file.read_exact(&mut salt)?;
+    let mut nonce = [0u8; XNONCE_LEN];
+    file.read_exact(&mut nonce)?;
+    let mut size_bytes = [0u8; 8];
+    file.read_exact(&mut size_bytes)?;
     let size = u64::from_le_bytes(size_bytes);
     Ok(StandardHeaderInfo { salt, nonce, size })
 }
@@ -123,9 +127,12 @@ fn read_standard_header(file: &mut File) -> Result<StandardHeaderInfo> {
 fn read_hidden_header(file: &mut File) -> Result<HiddenHeaderInfo> {
     file.seek(SeekFrom::Start(HIDDEN_HEADER_OFFSET))?;
     // Read Hidden Header fields
-    let mut salt = [0u8; SALT_LEN]; file.read_exact(&mut salt)?;
-    let mut nonce = [0u8; XNONCE_LEN]; file.read_exact(&mut nonce)?;
-    let mut size_bytes = [0u8; 8]; file.read_exact(&mut size_bytes)?;
+    let mut salt = [0u8; SALT_LEN];
+    file.read_exact(&mut salt)?;
+    let mut nonce = [0u8; XNONCE_LEN];
+    file.read_exact(&mut nonce)?;
+    let mut size_bytes = [0u8; 8];
+    file.read_exact(&mut size_bytes)?;
     let size = u64::from_le_bytes(size_bytes);
     Ok(HiddenHeaderInfo { salt, nonce, size })
 }
@@ -153,10 +160,15 @@ fn write_full_hidden_header(file: &mut File, header: &HiddenHeaderInfo) -> Resul
 }
 
 /// Updates only the metadata nonce and size fields within an *existing* header block.
-fn update_header_metadata(file: &mut File, volume_type: VolumeType, nonce: &[u8; XNONCE_LEN], size: u64) -> Result<()> {
+fn update_header_metadata(
+    file: &mut File,
+    volume_type: VolumeType,
+    nonce: &[u8; XNONCE_LEN],
+    size: u64,
+) -> Result<()> {
     let offset = match volume_type {
         VolumeType::Standard => (HEADER_COMMON_LEN + SALT_LEN) as u64, // Offset after Magic+Ver+Salt_S
-        VolumeType::Hidden => HIDDEN_HEADER_OFFSET + SALT_LEN as u64, // Offset after Salt_H
+        VolumeType::Hidden => HIDDEN_HEADER_OFFSET + SALT_LEN as u64,  // Offset after Salt_H
     };
     file.seek(SeekFrom::Start(offset))?;
     file.write_all(nonce)?; // Write new metadata nonce
@@ -167,18 +179,33 @@ fn update_header_metadata(file: &mut File, volume_type: VolumeType, nonce: &[u8;
 // --- Low-Level Metadata Block I/O ---
 
 /// Reads and decrypts the metadata block for a given volume.
-fn read_metadata_block(file: &mut File, key: &[u8;32], nonce: &[u8;XNONCE_LEN], size: u64, offset: u64) -> Result<MetadataMap> {
+fn read_metadata_block(
+    file: &mut File,
+    key: &[u8; 32],
+    nonce: &[u8; XNONCE_LEN],
+    size: u64,
+    offset: u64,
+) -> Result<MetadataMap> {
     // Added Logging
-    info!("Attempting read_metadata_block: Offset={}, Size={}, Nonce starts with: {:x?}", offset, size, &nonce[..4]);
+    info!(
+        "Attempting read_metadata_block: Offset={}, Size={}, Nonce starts with: {:x?}",
+        offset,
+        size,
+        &nonce[..4]
+    );
 
     // Handle case where volume might be empty (size 0) during initial load
-    if size == 0 { 
+    if size == 0 {
         info!("Metadata size is 0, returning empty map.");
-        return Ok(MetadataMap::new()); 
+        return Ok(MetadataMap::new());
     }
     // Basic sanity check for size
-    if size > 50 * 1024 * 1024 { // e.g., 50 MiB limit for metadata
-        error!("Metadata block size {} at offset {} is excessively large. Aborting read.", size, offset);
+    if size > 50 * 1024 * 1024 {
+        // e.g., 50 MiB limit for metadata
+        error!(
+            "Metadata block size {} at offset {} is excessively large. Aborting read.",
+            size, offset
+        );
         return Err(anyhow!("metadata block size too large"));
     }
 
@@ -187,22 +214,32 @@ fn read_metadata_block(file: &mut File, key: &[u8;32], nonce: &[u8;XNONCE_LEN], 
         return Err(anyhow!("seek to metadata offset failed: {}", e));
     }
     info!("Seeked to offset {} successfully.", offset);
-    
+
     let mut encrypted_metadata = vec![0u8; size as usize];
     if let Err(e) = file.read_exact(&mut encrypted_metadata) {
-        error!("Failed to read exactly {} bytes for metadata at offset {}: {}", size, offset, e);
+        error!(
+            "Failed to read exactly {} bytes for metadata at offset {}: {}",
+            size, offset, e
+        );
         // Consider logging file size here: let file_len = file.seek(SeekFrom::End(0)).unwrap_or(0); info!("File size: {}", file_len);
         return Err(anyhow!("read metadata failed: {}", e));
     }
-    info!("Read {} encrypted bytes successfully for metadata.", encrypted_metadata.len());
+    info!(
+        "Read {} encrypted bytes successfully for metadata.",
+        encrypted_metadata.len()
+    );
 
     let cipher = get_cipher(key);
     let nonce_obj = XNonce::from_slice(nonce);
-    
+
     // Decrypt
     match cipher.decrypt(nonce_obj, encrypted_metadata.as_ref()) {
         Ok(plaintext) => {
-            info!("AEAD decryption successful for offset {}. Plaintext size: {}", offset, plaintext.len());
+            info!(
+                "AEAD decryption successful for offset {}. Plaintext size: {}",
+                offset,
+                plaintext.len()
+            );
             // Deserialize
             match bincode::deserialize(&plaintext) {
                 Ok(map) => {
@@ -210,27 +247,40 @@ fn read_metadata_block(file: &mut File, key: &[u8;32], nonce: &[u8;XNONCE_LEN], 
                     Ok(map)
                 }
                 Err(e) => {
-                    error!("Bincode deserialization FAILED for offset {}: {}", offset, e);
+                    error!(
+                        "Bincode deserialization FAILED for offset {}: {}",
+                        offset, e
+                    );
                     Err(anyhow!("metadata deserialization failed: {}", e))
                 }
             }
         }
-        Err(aead_err) => { // Capture AEAD error if needed, though it's often opaque
-            error!("AEAD decryption FAILED for offset {}. AEAD Error: {:?}", offset, aead_err);
+        Err(aead_err) => {
+            // Capture AEAD error if needed, though it's often opaque
+            error!(
+                "AEAD decryption FAILED for offset {}. AEAD Error: {:?}",
+                offset, aead_err
+            );
             Err(anyhow!("metadata decryption failed")) // Keep generic API error
         }
     }
 }
 
 /// Encrypts and writes the metadata map to the specified offset. Returns the new (nonce, size).
-fn write_metadata_block(file: &mut File, key: &[u8;32], map: &MetadataMap, offset: u64) -> Result<([u8;XNONCE_LEN], u64)> {
+fn write_metadata_block(
+    file: &mut File,
+    key: &[u8; 32],
+    map: &MetadataMap,
+    offset: u64,
+) -> Result<([u8; XNONCE_LEN], u64)> {
     // Serialize the map using bincode
     let plaintext = bincode::serialize(map)?;
 
     // Encrypt the serialized data
     let cipher = get_cipher(key);
     let nonce = XChaCha20Poly1305::generate_nonce(&mut OsRng); // Generate a fresh random nonce
-    let ciphertext = cipher.encrypt(&nonce, plaintext.as_ref())
+    let ciphertext = cipher
+        .encrypt(&nonce, plaintext.as_ref())
         .map_err(|e| anyhow!("metadata encryption failed: {}", e))?;
 
     // Write the encrypted block to the specified offset
@@ -250,7 +300,12 @@ fn write_metadata_block(file: &mut File, key: &[u8;32], map: &MetadataMap, offse
 
 /// Encrypts content and appends it (with its nonce) to the end of the data area.
 /// Returns metadata describing the location and size of the written block.
-fn append_file_data(file: &mut File, key: &[u8;32], content: &[u8], mime_type: &str) -> Result<FileMetadata> {
+fn append_file_data(
+    file: &mut File,
+    key: &[u8; 32],
+    content: &[u8],
+    mime_type: &str,
+) -> Result<FileMetadata> {
     // Seek to the current end of the file
     let mut current_offset = file.seek(SeekFrom::End(0))?;
 
@@ -269,7 +324,8 @@ fn append_file_data(file: &mut File, key: &[u8;32], content: &[u8], mime_type: &
     // Encrypt the file content
     let cipher = get_cipher(key);
     let nonce = XChaCha20Poly1305::generate_nonce(&mut OsRng); // Fresh random nonce for this file block
-    let ciphertext = cipher.encrypt(&nonce, content)
+    let ciphertext = cipher
+        .encrypt(&nonce, content)
         .map_err(|e| anyhow!("file data encryption failed: {}", e))?;
 
     // Write the Nonce first, then the Ciphertext
@@ -287,7 +343,7 @@ fn append_file_data(file: &mut File, key: &[u8;32], content: &[u8], mime_type: &
 }
 
 /// Reads and decrypts a file's data block given its metadata.
-fn read_file_data(file: &mut File, key: &[u8;32], metadata: &FileMetadata) -> Result<Vec<u8>> {
+fn read_file_data(file: &mut File, key: &[u8; 32], metadata: &FileMetadata) -> Result<Vec<u8>> {
     // Seek to the start of the data block (where the nonce is)
     file.seek(SeekFrom::Start(metadata.data_offset))?;
 
@@ -303,7 +359,8 @@ fn read_file_data(file: &mut File, key: &[u8;32], metadata: &FileMetadata) -> Re
     // Decrypt using the key and the nonce read from the file
     let cipher = get_cipher(key);
     let nonce = XNonce::from_slice(&nonce_bytes);
-    cipher.decrypt(nonce, ciphertext.as_ref())
+    cipher
+        .decrypt(nonce, ciphertext.as_ref())
         .map_err(|e| anyhow!("file data decryption failed: {}", e))
 }
 
@@ -326,9 +383,15 @@ pub fn init_blob(path: &Path, password_s: &str, password_h: &str) -> Result<()> 
     }
 
     // 1. Generate distinct salts
-    let mut salt_s = [0u8; SALT_LEN]; OsRng.fill_bytes(&mut salt_s);
+    let mut salt_s = [0u8; SALT_LEN];
+    OsRng.fill_bytes(&mut salt_s);
     let mut salt_h = [0u8; SALT_LEN];
-    loop { OsRng.fill_bytes(&mut salt_h); if salt_h != salt_s { break; } } // Ensure salts differ
+    loop {
+        OsRng.fill_bytes(&mut salt_h);
+        if salt_h != salt_s {
+            break;
+        }
+    } // Ensure salts differ
 
     // 2. Derive keys
     let key_s = derive_key(password_s, &salt_s)?;
@@ -342,12 +405,28 @@ pub fn init_blob(path: &Path, password_s: &str, password_h: &str) -> Result<()> 
     let mut file = File::create(path)?;
 
     // 5. Write initial empty metadata blocks to get nonces/sizes for headers
-    let (meta_nonce_s, meta_size_s) = write_metadata_block(&mut file, &key_s, &metadata_s, STANDARD_METADATA_OFFSET)?;
-    let (meta_nonce_h, meta_size_h) = write_metadata_block(&mut file, &key_h, &metadata_h, HIDDEN_METADATA_OFFSET)?;
+    let (meta_nonce_s, meta_size_s) =
+        write_metadata_block(&mut file, &key_s, &metadata_s, STANDARD_METADATA_OFFSET)?;
+    let (meta_nonce_h, meta_size_h) =
+        write_metadata_block(&mut file, &key_h, &metadata_h, HIDDEN_METADATA_OFFSET)?;
 
     // 6. Write the complete headers
-    write_full_standard_header(&mut file, &StandardHeaderInfo { salt: salt_s, nonce: meta_nonce_s, size: meta_size_s })?;
-    write_full_hidden_header(&mut file, &HiddenHeaderInfo { salt: salt_h, nonce: meta_nonce_h, size: meta_size_h })?;
+    write_full_standard_header(
+        &mut file,
+        &StandardHeaderInfo {
+            salt: salt_s,
+            nonce: meta_nonce_s,
+            size: meta_size_s,
+        },
+    )?;
+    write_full_hidden_header(
+        &mut file,
+        &HiddenHeaderInfo {
+            salt: salt_h,
+            nonce: meta_nonce_h,
+            size: meta_size_h,
+        },
+    )?;
 
     // 7. Fill padding between standard metadata end and hidden header start with random data
     let standard_meta_end = STANDARD_METADATA_OFFSET + meta_size_s;
@@ -385,26 +464,38 @@ pub fn init_blob(path: &Path, password_s: &str, password_h: &str) -> Result<()> 
 ///             leaking information about volume existence.
 pub fn unlock_blob(path: &Path, password: &str) -> Result<(VolumeType, [u8; 32], MetadataMap)> {
     // Note: In a real app, init logger once at startup
-    // let _ = env_logger::try_init(); 
+    // let _ = env_logger::try_init();
 
     info!("Unlock attempt for path: {}", path.display());
-    let mut file = File::open(path).map_err(|e| anyhow!("Failed to open blob file {}: {}", path.display(), e))?;
+    let mut file = File::open(path)
+        .map_err(|e| anyhow!("Failed to open blob file {}: {}", path.display(), e))?;
 
     // --- Attempt 1: Unlock Standard Volume ---
     info!("Attempting Standard Volume unlock.");
     match read_standard_header(&mut file) {
         Ok(header_s) => {
-            info!("Standard Header: Nonce starts {:x?}, Size {}", &header_s.nonce[..4], header_s.size);
+            info!(
+                "Standard Header: Nonce starts {:x?}, Size {}",
+                &header_s.nonce[..4],
+                header_s.size
+            );
             match derive_key(password, &header_s.salt) {
                 Ok(key_s) => {
                     info!("Derived potential standard key.");
-                    match read_metadata_block(&mut file, &key_s, &header_s.nonce, header_s.size, STANDARD_METADATA_OFFSET) {
+                    match read_metadata_block(
+                        &mut file,
+                        &key_s,
+                        &header_s.nonce,
+                        header_s.size,
+                        STANDARD_METADATA_OFFSET,
+                    ) {
                         Ok(metadata_s) => {
                             info!("Standard volume unlocked successfully!");
                             return Ok((VolumeType::Standard, key_s, metadata_s));
                         }
                         Err(e) => {
-                            warn!("Standard metadata decryption failed: {}", e); // Log specific error from read_metadata_block
+                            warn!("Standard metadata decryption failed: {}", e);
+                            // Log specific error from read_metadata_block
                         }
                     }
                 }
@@ -416,33 +507,46 @@ pub fn unlock_blob(path: &Path, password: &str) -> Result<(VolumeType, [u8; 32],
 
     // Reset file position potentially needed if standard read failed mid-way
     if let Err(e) = file.seek(SeekFrom::Start(0)) {
-         error!("Failed to seek to start before hidden attempt: {}", e);
-         // Decide if this is fatal or recoverable. Let's assume fatal for now.
-         return Err(anyhow!("seek failed: {}", e));
+        error!("Failed to seek to start before hidden attempt: {}", e);
+        // Decide if this is fatal or recoverable. Let's assume fatal for now.
+        return Err(anyhow!("seek failed: {}", e));
     }
 
     // --- Attempt 2: Unlock Hidden Volume ---
     info!("Attempting Hidden Volume unlock.");
     match read_hidden_header(&mut file) {
         Ok(header_h) => {
-            info!("Hidden Header: Salt starts {:x?}, Nonce starts {:x?}, Size {}",
-                   &header_h.salt[..4], &header_h.nonce[..4], header_h.size);
+            info!(
+                "Hidden Header: Salt starts {:x?}, Nonce starts {:x?}, Size {}",
+                &header_h.salt[..4],
+                &header_h.nonce[..4],
+                header_h.size
+            );
             match derive_key(password, &header_h.salt) {
-                 Ok(key_h) => {
-                     let mut key_hash = [0u8; 16]; // Example hash
-                     key_hash.copy_from_slice(&key_h[..16]);
-                     info!("Derived potential hidden key (hash starts {:x?})", &key_hash[..4]);
-                     match read_metadata_block(&mut file, &key_h, &header_h.nonce, header_h.size, HIDDEN_METADATA_OFFSET) {
-                         Ok(metadata_h) => {
-                             info!("Hidden volume unlocked successfully!");
-                             return Ok((VolumeType::Hidden, key_h, metadata_h));
-                         }
-                         Err(e) => {
-                             error!("Hidden metadata decryption FAILED: {}", e); // Log specific error
-                         }
-                     }
-                 }
-                 Err(e) => error!("Failed to derive hidden key: {}", e),
+                Ok(key_h) => {
+                    let mut key_hash = [0u8; 16]; // Example hash
+                    key_hash.copy_from_slice(&key_h[..16]);
+                    info!(
+                        "Derived potential hidden key (hash starts {:x?})",
+                        &key_hash[..4]
+                    );
+                    match read_metadata_block(
+                        &mut file,
+                        &key_h,
+                        &header_h.nonce,
+                        header_h.size,
+                        HIDDEN_METADATA_OFFSET,
+                    ) {
+                        Ok(metadata_h) => {
+                            info!("Hidden volume unlocked successfully!");
+                            return Ok((VolumeType::Hidden, key_h, metadata_h));
+                        }
+                        Err(e) => {
+                            error!("Hidden metadata decryption FAILED: {}", e); // Log specific error
+                        }
+                    }
+                }
+                Err(e) => error!("Failed to derive hidden key: {}", e),
             }
         }
         Err(e) => error!("Failed to read hidden header: {}", e),
@@ -452,7 +556,6 @@ pub fn unlock_blob(path: &Path, password: &str) -> Result<(VolumeType, [u8; 32],
     warn!("Unlock failed for both volumes: Invalid password or corrupted blob.");
     Err(anyhow!("Invalid password or corrupted blob"))
 }
-
 
 /// Adds or updates a file within the currently unlocked volume.
 /// Appends the encrypted file data and updates the volume's metadata block.
@@ -491,38 +594,42 @@ pub fn add_file(
         VolumeType::Standard => STANDARD_METADATA_OFFSET,
         VolumeType::Hidden => HIDDEN_METADATA_OFFSET,
     };
-    let (new_nonce, new_size) = write_metadata_block(&mut file, key, metadata_map, metadata_offset)?;
+    let (new_nonce, new_size) =
+        write_metadata_block(&mut file, key, metadata_map, metadata_offset)?;
 
     // 4. Update the corresponding header (Standard or Hidden) with the new metadata nonce/size
     update_header_metadata(&mut file, volume_type, &new_nonce, new_size)?;
 
     // 5. Ensure changes are flushed - with enhanced iOS handling
     file.sync_data()?; // Sync after metadata and header updates
-    
+
     // Additional iOS-specific file handle management
     #[cfg(target_os = "ios")]
     {
         use std::os::unix::fs::MetadataExt;
-        
+
         // Force close and reopen the file handle to ensure iOS commits changes
         drop(file);
-        
+
         // Verify the file size has actually changed on disk
         if let Ok(metadata) = std::fs::metadata(path) {
-            info!("iOS file verification: blob size on disk is {} bytes", metadata.size());
+            info!(
+                "iOS file verification: blob size on disk is {} bytes",
+                metadata.size()
+            );
         }
-        
+
         // Reopen and sync one more time for iOS
         let mut verify_file = OpenOptions::new().read(true).write(true).open(path)?;
         verify_file.sync_all()?;
     }
-    
+
     #[cfg(not(target_os = "ios"))]
     {
         // Standard platform: just ensure sync_all is called
         file.sync_all()?;
     }
-    
+
     Ok(())
 }
 
@@ -574,34 +681,38 @@ pub fn remove_file(
         VolumeType::Standard => STANDARD_METADATA_OFFSET,
         VolumeType::Hidden => HIDDEN_METADATA_OFFSET,
     };
-    let (new_nonce, new_size) = write_metadata_block(&mut file, key, metadata_map, metadata_offset)?;
+    let (new_nonce, new_size) =
+        write_metadata_block(&mut file, key, metadata_map, metadata_offset)?;
     update_header_metadata(&mut file, volume_type, &new_nonce, new_size)?;
-    
+
     // Enhanced iOS file sync handling
     file.sync_data()?; // Sync after metadata and header updates
-    
+
     #[cfg(target_os = "ios")]
     {
         use std::os::unix::fs::MetadataExt;
-        
+
         // Force close and reopen the file handle to ensure iOS commits changes
         drop(file);
-        
+
         // Verify the file size on disk for iOS
         if let Ok(metadata) = std::fs::metadata(path) {
-            info!("iOS file verification after remove: blob size on disk is {} bytes", metadata.size());
+            info!(
+                "iOS file verification after remove: blob size on disk is {} bytes",
+                metadata.size()
+            );
         }
-        
+
         // Reopen and sync one more time for iOS
         let mut verify_file = OpenOptions::new().read(true).write(true).open(path)?;
         verify_file.sync_all()?;
     }
-    
+
     #[cfg(not(target_os = "ios"))]
     {
         file.sync_all()?;
     }
-    
+
     Ok(true)
 }
 
@@ -640,34 +751,38 @@ pub fn rename_file(
             VolumeType::Standard => STANDARD_METADATA_OFFSET,
             VolumeType::Hidden => HIDDEN_METADATA_OFFSET,
         };
-        let (new_nonce, new_size) = write_metadata_block(&mut file, key, metadata_map, metadata_offset)?;
+        let (new_nonce, new_size) =
+            write_metadata_block(&mut file, key, metadata_map, metadata_offset)?;
         update_header_metadata(&mut file, volume_type, &new_nonce, new_size)?;
-        
+
         // Enhanced iOS file sync handling
         file.sync_data()?;
-        
+
         #[cfg(target_os = "ios")]
         {
             use std::os::unix::fs::MetadataExt;
-            
+
             // Force close and reopen the file handle to ensure iOS commits changes
             drop(file);
-            
+
             // Verify the file size on disk for iOS
             if let Ok(metadata) = std::fs::metadata(path) {
-                info!("iOS file verification after rename: blob size on disk is {} bytes", metadata.size());
+                info!(
+                    "iOS file verification after rename: blob size on disk is {} bytes",
+                    metadata.size()
+                );
             }
-            
+
             // Reopen and sync one more time for iOS
             let mut verify_file = OpenOptions::new().read(true).write(true).open(path)?;
             verify_file.sync_all()?;
         }
-        
+
         #[cfg(not(target_os = "ios"))]
         {
             file.sync_all()?;
         }
-        
+
         return Ok(true); // Rename successful
     }
     Ok(false) // Old path not found
@@ -695,7 +810,8 @@ pub fn remove_folder(
     folder_path: &str,
 ) -> Result<bool> {
     // Ensure folder path format for prefix matching (e.g., "documents/work/")
-    let prefix = if folder_path.is_empty() { // Handle removing root content if needed? Risky.
+    let prefix = if folder_path.is_empty() {
+        // Handle removing root content if needed? Risky.
         "".to_string() // Or return error? Current logic allows removing everything if "" passed.
     } else if folder_path.ends_with('/') {
         folder_path.to_string()
@@ -709,7 +825,7 @@ pub fn remove_folder(
     // 1. Find all keys matching the exact folder path or starting with the prefix
     let keys_to_remove: Vec<String> = metadata_map
         .keys()
-        .filter(|k| k == &path_itself || ( !prefix.is_empty() && k.starts_with(&prefix)) )
+        .filter(|k| k == &path_itself || (!prefix.is_empty() && k.starts_with(&prefix)))
         .cloned()
         .collect();
 
@@ -718,7 +834,8 @@ pub fn remove_folder(
     }
 
     // 2. Remove the collected keys from the in-memory map
-    for key_to_remove in &keys_to_remove { // Use reference here
+    for key_to_remove in &keys_to_remove {
+        // Use reference here
         metadata_map.remove(key_to_remove);
     }
 
@@ -728,34 +845,37 @@ pub fn remove_folder(
         VolumeType::Standard => STANDARD_METADATA_OFFSET,
         VolumeType::Hidden => HIDDEN_METADATA_OFFSET,
     };
-    let (new_nonce, new_size) = write_metadata_block(&mut file, key, metadata_map, metadata_offset)?;
+    let (new_nonce, new_size) =
+        write_metadata_block(&mut file, key, metadata_map, metadata_offset)?;
     update_header_metadata(&mut file, volume_type, &new_nonce, new_size)?;
-    
+
     // Enhanced iOS file sync handling
     file.sync_data()?; // Sync after metadata and header updates
-    
+
     #[cfg(target_os = "ios")]
     {
         use std::os::unix::fs::MetadataExt;
-        
+
         // Force close and reopen the file handle to ensure iOS commits changes
         drop(file);
-        
+
         // Verify the file size on disk for iOS
         if let Ok(metadata) = std::fs::metadata(path) {
-            info!("iOS file verification after remove folder: blob size on disk is {} bytes", metadata.size());
+            info!(
+                "iOS file verification after remove folder: blob size on disk is {} bytes",
+                metadata.size()
+            );
         }
-        
+
         // Reopen and sync one more time for iOS
         let mut verify_file = OpenOptions::new().read(true).write(true).open(path)?;
         verify_file.sync_all()?;
     }
-    
+
     #[cfg(not(target_os = "ios"))]
     {
         file.sync_all()?;
     }
-    
+
     Ok(true)
 }
-
