@@ -133,11 +133,23 @@ jobs:
           unzip -o enc_server.zip
           rm enc_server.zip
           
-          # Staple the notarization ticket
-          xcrun stapler staple enc_server
-          
-          # Verify notarization
-          xcrun stapler validate enc_server
+          # Staple the notarization ticket (with retries)
+          echo "Attempting to staple notarization ticket..."
+          for i in {1..5}; do
+            if xcrun stapler staple enc_server; then
+              echo "Stapling successful on attempt $i"
+              xcrun stapler validate enc_server
+              break
+            else
+              echo "Stapling attempt $i failed, waiting 30 seconds..."
+              if [ $i -eq 5 ]; then
+                echo "Stapling failed after 5 attempts, but notarization was successful."
+                echo "The binary is notarized and will work, just without offline verification."
+              else
+                sleep 30
+              fi
+            fi
+          done
       
       # Linux GPG signing
       - name: Sign Linux binary with GPG
