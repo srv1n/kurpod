@@ -20,6 +20,7 @@ axum-extra = { version = "0.9.3" }
 tokio = { version = "1.0", features = ["full"] }
 tower-http = { version = "0.5", features = ["fs", "cors"] }
 tower = { version = "0.4" }
+rust-embed = "8.0"
 
 # CLI and utilities
 clap = { version = "4.0", features = ["derive"] }

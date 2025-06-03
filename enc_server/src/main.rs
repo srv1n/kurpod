@@ -3,7 +3,7 @@ mod state;
 use crate::state::AppState;
 use axum::extract::Extension;
 use axum::{
-    extract::{DefaultBodyLimit, Query},
+    extract::{DefaultBodyLimit, Query, Path},
     http::{
         header::{CONTENT_DISPOSITION, CONTENT_TYPE},
         StatusCode,
@@ -31,7 +31,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 use tokio::net::TcpListener;
-use tower_http::services::ServeDir;
+use rust_embed::RustEmbed;
 
 /// Command-line arguments
 #[derive(Parser, Debug)]
@@ -196,23 +196,54 @@ fn get_available_blobs(dir_path: &PathBuf) -> Vec<String> {
     blobs
 }
 
+#[derive(RustEmbed)]
+#[folder = "../frontend/dist/"]
+struct Assets;
+
+// Static file handler using embedded assets
+async fn static_handler(Path(path): Path<String>) -> impl IntoResponse {
+    let path = if path.is_empty() { "index.html" } else { &path };
+    
+    match Assets::get(path) {
+        Some(content) => {
+            let mime = mime_guess::from_path(path).first_or_octet_stream();
+            Response::builder()
+                .status(StatusCode::OK)
+                .header(CONTENT_TYPE, mime.as_ref())
+                .body(axum::body::Body::from(content.data))
+                .unwrap()
+        }
+        None => {
+            // For SPA routing, serve index.html for unmatched paths
+            match Assets::get("index.html") {
+                Some(content) => {
+                    Response::builder()
+                        .status(StatusCode::OK)
+                        .header(CONTENT_TYPE, "text/html")
+                        .body(axum::body::Body::from(content.data))
+                        .unwrap()
+                }
+                None => {
+                    Response::builder()
+                        .status(StatusCode::NOT_FOUND)
+                        .body(axum::body::Body::from("Frontend not found"))
+                        .unwrap()
+                }
+            }
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() {
     // Initialize logger (e.g., RUST_LOG=info cargo run)
     // Use try_init if multiple binaries might use it, otherwise init is fine.
-    let _ = env_logger::builder()
-        .filter_level(log::LevelFilter::Info)
-        .try_init();
+    let _ = env_logger::builder().filter_level(log::LevelFilter::Info).try_init();
 
     let args = Args::parse();
-
+    
     // Determine server mode from args and environment variables
-    let mode = match (
-        args.blob,
-        args.blob_dir,
-        std::env::var("BLOB_FILE"),
-        std::env::var("BLOB_DIR"),
-    ) {
+    let mode = match (args.blob, args.blob_dir, std::env::var("BLOB_FILE"), std::env::var("BLOB_DIR")) {
         // CLI args take precedence
         (Some(blob_file), None, _, _) => {
             let path = PathBuf::from(blob_file);
@@ -221,79 +252,67 @@ async fn main() {
             if !path.exists() {
                 if let Some(parent) = path.parent() {
                     if !parent.exists() {
-                        eprintln!(
-                            "Error: Parent directory {} does not exist",
-                            parent.display()
-                        );
+                        eprintln!("Error: Parent directory {} does not exist", parent.display());
                         std::process::exit(1);
                     }
                 }
-                println!(
-                    "Note: Blob file {} will be created on first init",
-                    path.display()
-                );
+                println!("Note: Blob file {} will be created on first init", path.display());
             }
             ServerMode::Single(path)
-        }
+        },
         (None, Some(blob_dir), _, _) => {
             let dir_path = PathBuf::from(blob_dir);
             println!("Directory mode: {}", dir_path.display());
             validate_or_create_directory(&dir_path);
             ServerMode::Directory(dir_path)
-        }
+        },
         (None, None, Ok(blob_file), _) => {
             let path = PathBuf::from(blob_file);
             println!("Single-blob mode (env): {}", path.display());
             if !path.exists() {
                 if let Some(parent) = path.parent() {
                     if !parent.exists() {
-                        eprintln!(
-                            "Error: Parent directory {} does not exist",
-                            parent.display()
-                        );
+                        eprintln!("Error: Parent directory {} does not exist", parent.display());
                         std::process::exit(1);
                     }
                 }
-                println!(
-                    "Note: Blob file {} will be created on first init",
-                    path.display()
-                );
+                println!("Note: Blob file {} will be created on first init", path.display());
             }
             ServerMode::Single(path)
-        }
+        },
         (None, None, _, Ok(blob_dir)) => {
             let dir_path = PathBuf::from(blob_dir);
             println!("Directory mode (env): {}", dir_path.display());
             validate_or_create_directory(&dir_path);
             ServerMode::Directory(dir_path)
-        }
+        },
         // Default mode: use ./blobs/ directory
         (None, None, _, _) => {
             let dir_path = PathBuf::from("./blobs");
             println!("Default mode: {}", dir_path.display());
             validate_or_create_directory(&dir_path);
             ServerMode::Directory(dir_path)
-        }
+        },
         // Error: both blob and blob_dir specified
         (Some(_), Some(_), _, _) => {
             eprintln!("Error: Cannot specify both --blob and --blob-dir");
             std::process::exit(1);
         }
     };
-
+    
     println!("Starting server at http://localhost:{}", args.port);
-
+    
     match local_ip() {
         Ok(ip) => println!("Also available at http://{}:{}", ip, args.port),
         Err(_) => println!("Could not determine local IP address"),
     }
-
+    
     let state: SharedState = Arc::new(Mutex::new(None));
     let app_context = AppContext {
         mode: mode.clone(),
         state: state.clone(),
     };
-
+    
     let app = axum::Router::new()
         .route("/api/status", get(status_handler))
         .route("/api/init", post(init_handler))
@@ -306,9 +325,10 @@ async fn main() {
         .route("/api/delete", delete(delete_handler))
         .route("/api/delete-folder", delete(delete_folder_handler))
         .route("/api/download", get(download_handler))
+        .route("/*path", get(static_handler))
+        .route("/", get(|| async { static_handler(Path("index.html".to_string())).await }))
         .layer(DefaultBodyLimit::disable())
-        .layer(Extension(app_context))
-        .fallback_service(ServeDir::new("frontend/dist"));
+        .layer(Extension(app_context));
 
     let addr = SocketAddr::from(([0, 0, 0, 0], args.port));
     let listener = TcpListener::bind(&addr).await.unwrap();
