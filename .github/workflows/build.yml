@@ -115,15 +115,55 @@ jobs:
           # Verify the signature
           codesign --verify --verbose target/${{ matrix.target }}/release/enc_server
       
+      - name: Notarize macOS binary
+        if: runner.os == 'macOS'
+        run: |
+          # Create a zip file for notarization
+          cd target/${{ matrix.target }}/release
+          zip enc_server.zip enc_server
+          
+          # Submit for notarization
+          xcrun notarytool submit enc_server.zip \
+            --apple-id "${{ secrets.APPLE_ID }}" \
+            --password "${{ secrets.APPLE_APP_PASSWORD }}" \
+            --team-id "${{ secrets.APPLE_TEAM_ID }}" \
+            --wait
+          
+          # Extract the binary back
+          unzip -o enc_server.zip
+          rm enc_server.zip
+          
+          # Staple the notarization ticket
+          xcrun stapler staple enc_server
+          
+          # Verify notarization
+          xcrun stapler validate enc_server
+      
       # Linux GPG signing
       - name: Sign Linux binary with GPG
         if: runner.os == 'Linux'
         run: |
+          # Setup GPG environment for non-interactive signing
+          mkdir -p ~/.gnupg
+          chmod 700 ~/.gnupg
+          
           # Import GPG key
           echo "${{ secrets.GPG_PRIVATE_KEY }}" | gpg --batch --import
           
+          # Configure GPG for loopback pinentry (non-interactive)
+          echo 'pinentry-mode loopback' >> ~/.gnupg/gpg.conf
+          echo 'allow-loopback-pinentry' >> ~/.gnupg/gpg-agent.conf
+          
+          # Kill any auto-started agent so it reloads the new config
+          gpgconf --kill gpg-agent || true
+          
           # Sign the binary (creates .sig file)
-          gpg --armor --detach-sign --local-user "${{ secrets.GPG_KEY_ID }}" "target/${{ matrix.target }}/release/enc_server"
+          gpg --batch --yes \
+              --pinentry-mode loopback \
+              --passphrase "${{ secrets.GPG_PASSPHRASE }}" \
+              --local-user "${{ secrets.GPG_KEY_ID }}" \
+              --armor --detach-sign \
+              "target/${{ matrix.target }}/release/enc_server"
           
           # Verify signature
           gpg --verify "target/${{ matrix.target }}/release/enc_server.asc" "target/${{ matrix.target }}/release/enc_server"
