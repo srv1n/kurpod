@@ -1,6 +1,6 @@
 [package]
 name = "enc_server"
-version = "0.0.2"
+version = "0.1.0"
 edition = "2021"
 description = "HTTP server implementation for the encrypted blob application"
 
