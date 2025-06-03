@@ -11,7 +11,7 @@ resolver = "3"
 # The workspace doesn't have its own dependencies
 [workspace.package]
 edition = "2021"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["ENC Server Team"]
 license = "AGPL-3.0-or-later"
 homepage = "https://github.com/yourusername/enc-server"

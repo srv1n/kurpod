@@ -425,7 +425,7 @@ checksum = "48c757948c5ede0e46177b7add2e67155f70e33c07fea8284df6576da70b3719"
 
 [[package]]
 name = "enc_server"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "axum",
@@ -459,7 +459,7 @@ dependencies = [
 
 [[package]]
 name = "encryption_core"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "aes-gcm",
  "anyhow",
