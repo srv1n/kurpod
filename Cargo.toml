@@ -11,7 +11,7 @@ resolver = "3"
 # The workspace doesn't have its own dependencies
 [workspace.package]
 edition = "2024"
-version = "0.0.1"
+version = "0.0.2"
 authors = ["ENC Server Team"]
 license = "AGPL-3.0-or-later"
 homepage = "https://github.com/yourusername/enc-server"
@@ -22,7 +22,7 @@ categories = ["cryptography", "web-programming", "command-line-utilities"]
 
 # Shared dependencies for all workspace members
 [workspace.dependencies]
-serde = { version = "1.0.219", features = ["derive"] }
+serde = { version = "0.0.2"] }
 serde_json = "1.0.140"
 rand = "0.8"
 rand_core = "0.9.3"
