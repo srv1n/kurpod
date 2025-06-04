@@ -12,7 +12,7 @@ use rand::RngCore;
 use serde::{Deserialize, Serialize}; // Make sure 'serde' features = ["derive"] is in Cargo.toml
 use std::{
     collections::HashMap,
-    fs::{File, OpenOptions},
+    fs::{self, File, OpenOptions},
     io::{Read, Seek, SeekFrom, Write},
     path::Path,
 };
@@ -878,4 +878,71 @@ pub fn remove_folder(
     }
 
     Ok(true)
+}
+
+/// Compacts the blob file by rewriting it and discarding orphaned data blocks.
+/// Requires both the standard and hidden volume passwords to recreate the blob.
+pub fn compact_blob(path: &Path, password_s: &str, password_h: &str) -> Result<()> {
+    // Unlock existing blob to read metadata from both volumes
+    let mut file = File::open(path)?;
+    let header_s = read_standard_header(&mut file)?;
+    let header_h = read_hidden_header(&mut file)?;
+    let key_s_old = derive_key(password_s, &header_s.salt)?;
+    let metadata_s = read_metadata_block(
+        &mut file,
+        &key_s_old,
+        &header_s.nonce,
+        header_s.size,
+        STANDARD_METADATA_OFFSET,
+    )?;
+    let key_h_old = derive_key(password_h, &header_h.salt)?;
+    let metadata_h = read_metadata_block(
+        &mut file,
+        &key_h_old,
+        &header_h.nonce,
+        header_h.size,
+        HIDDEN_METADATA_OFFSET,
+    )?;
+    drop(file);
+
+    // Create temporary blob with new salts/keys using same passwords
+    let tmp_path = path.with_extension("compact_tmp");
+    init_blob(&tmp_path, password_s, password_h)?;
+
+    // Unlock the new blob volumes
+    let (_, key_s_new, mut map_s_new) = unlock_blob(&tmp_path, password_s)?;
+    let (_, key_h_new, mut map_h_new) = unlock_blob(&tmp_path, password_h)?;
+
+    // Copy all files from old blob to new blob
+    for (p, meta) in metadata_s.iter() {
+        let data = get_file(path, &key_s_old, meta)?;
+        add_file(
+            &tmp_path,
+            VolumeType::Standard,
+            &key_s_new,
+            &mut map_s_new,
+            p,
+            &data,
+            &meta.mime_type,
+        )?;
+    }
+    for (p, meta) in metadata_h.iter() {
+        let data = get_file(path, &key_h_old, meta)?;
+        add_file(
+            &tmp_path,
+            VolumeType::Hidden,
+            &key_h_new,
+            &mut map_h_new,
+            p,
+            &data,
+            &meta.mime_type,
+        )?;
+    }
+
+    // Replace original file atomically
+    let backup = path.with_extension("bak");
+    fs::rename(path, &backup)?;
+    fs::rename(&tmp_path, path)?;
+    fs::remove_file(backup)?;
+    Ok(())
 }

@@ -334,6 +334,20 @@ cp /home/encserver/storage.blob /backup/storage-$(date +%Y%m%d).blob
 sudo systemctl start enc-server
 ```
 
+### Reclaiming Space
+
+Deleting files only removes their metadata. To shrink the blob file you must
+compact it. Send a request to the server while it is unlocked:
+
+```bash
+curl -X POST http://localhost:3000/api/compact \
+     -H 'Content-Type: application/json' \
+     -d '{"password_s":"<standard>","password_h":"<hidden>"}'
+```
+
+Depending on blob size this may take a while. Always create a backup of the blob
+before running compaction in case of power loss or interruption.
+
 ## Troubleshooting
 
 ### Common Issues
