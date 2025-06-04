@@ -10,6 +10,7 @@ use tauri::State;
 use rand::{rngs::OsRng, RngCore};
 use hex;
 use tauri::{AppHandle, Manager, Emitter};
+use std::io::Write;
 
 // iOS file picker removed - using directory mode instead
 
@@ -51,8 +52,7 @@ struct AppState {
     mode: ServerMode,
 }
 
-#[derive(Clone)]
-#[allow(dead_code)]
+#[derive(Debug, Clone)]
 enum ServerMode {
     Desktop,           // Full file system access (macOS/Windows/Linux)
     MobileDirectory,   // iOS/Android - use app sandbox directory
@@ -340,7 +340,7 @@ fn init_encryption(
     }
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 fn unlock_encryption(
     app_handle: AppHandle,
     state: State<AppStateManager>,
@@ -348,9 +348,30 @@ fn unlock_encryption(
     blob_path: Option<String>,
     blob_name: Option<String>,
 ) -> ApiResponse<FileList> {
+    // ===== COMPREHENSIVE DEBUG LOGGING =====
+    println!("=== UNLOCK_ENCRYPTION DEBUG START ===");
+    println!("[unlock_encryption] Function called with parameters:");
+    println!("  - password: [HIDDEN] (length: {})", password.len());
+    println!("  - blob_path: {:?}", blob_path);
+    println!("  - blob_name: {:?}", blob_name);
+    println!("  - blob_name is_some(): {}", blob_name.is_some());
+    
+    if let Some(ref name) = blob_name {
+        println!("  - blob_name unwrapped: '{}'", name);
+        println!("  - blob_name length: {}", name.len());
+        println!("  - blob_name bytes: {:?}", name.as_bytes());
+        println!("  - blob_name.trim(): '{}'", name.trim());
+        println!("  - blob_name.trim().len(): {}", name.trim().len());
+        println!("  - blob_name.trim().is_empty(): {}", name.trim().is_empty());
+        println!("  - !blob_name.trim().is_empty(): {}", !name.trim().is_empty());
+    }
+    println!("=== UNLOCK_ENCRYPTION DEBUG END ===");
+    // ===== END DEBUG LOGGING =====
+    
     let mut guard = state.0.lock().unwrap();
 
     let mode = get_server_mode();
+    println!("[unlock_encryption] Server mode: {:?}", mode);
     
     let blob_path_buf = match mode {
         ServerMode::Desktop => {
@@ -379,9 +400,22 @@ fn unlock_encryption(
                 }
             };
             
+            println!("[unlock_encryption] MobileDirectory mode, checking blob_name...");
             let filename = match blob_name {
-                Some(name) if !name.trim().is_empty() => name.trim().to_string(),
-                _ => {
+                Some(name) if !name.trim().is_empty() => {
+                    println!("[unlock_encryption] blob_name validation PASSED: '{}'", name.trim());
+                    name.trim().to_string()
+                },
+                Some(name) => {
+                    println!("[unlock_encryption] blob_name validation FAILED - empty after trim: '{}'", name);
+                    return ApiResponse {
+                        success: false,
+                        data: None,
+                        message: Some(format!("Blob name is empty after trim. Original: '{}', Trimmed: '{}'", name, name.trim())),
+                    }
+                },
+                None => {
+                    println!("[unlock_encryption] blob_name validation FAILED - None value");
                     return ApiResponse {
                         success: false,
                         data: None,
@@ -390,11 +424,12 @@ fn unlock_encryption(
                 }
             };
             
+            println!("[unlock_encryption] Using filename: '{}'", filename);
             blobs_dir.join(filename)
         }
     };
 
-    println!("[unlock_encryption mobile] FINAL blob_path_buf: {}", blob_path_buf.display());
+    println!("[unlock_encryption] Final blob_path_buf: {}", blob_path_buf.display());
     println!("=== UNLOCK_ENCRYPTION MOBILE DEBUG END ===");
 
     if let Some(app) = guard.as_ref() {
@@ -986,11 +1021,194 @@ fn list_blobs_in_app_data(app_handle: AppHandle) -> ApiResponse<Vec<String>> {
     }
 }
 
-// Command to import a blob file by content into the blobs directory (Mobile Only)
+// Command to start chunked blob import (Mobile Only)
+#[cfg(any(target_os = "ios", target_os = "android"))]
+#[tauri::command]
+fn start_blob_import(app_handle: AppHandle, target_name: String, file_size: u64) -> ApiResponse<String> {
+    println!("[start_blob_import] Starting chunked import: {} bytes -> {}", file_size, target_name);
+    
+    // Basic validation: Ensure target name is safe
+    if target_name.is_empty() || target_name.contains('/') || target_name.contains('\\') || target_name == "." || target_name == ".." {
+         println!("[start_blob_import] Invalid target filename: {}", target_name);
+         return ApiResponse {
+            success: false,
+            data: None,
+            message: Some(format!("Invalid target filename provided: {}", target_name)),
+        };
+    }
+
+    let blobs_dir = match get_blobs_directory(&app_handle) {
+        Ok(dir) => {
+            println!("[start_blob_import] Blobs directory: {}", dir.display());
+            dir
+        },
+        Err(e) => {
+            println!("[start_blob_import] Failed to get blobs directory: {}", e);
+            return ApiResponse {
+                success: false,
+                data: None,
+                message: Some(e),
+            };
+        }
+    };
+
+    let target_path = blobs_dir.join(&target_name);
+    println!("[start_blob_import] Target path: {}", target_path.display());
+
+    // Check if target already exists
+    if target_path.exists() {
+        println!("[start_blob_import] Target already exists: {}", target_path.display());
+        return ApiResponse {
+            success: false,
+            data: None,
+            message: Some(format!("A blob named '{}' already exists", target_name)),
+        };
+    }
+
+    // Create temporary file for chunked writing
+    let temp_path = target_path.with_extension("tmp");
+    match std::fs::File::create(&temp_path) {
+        Ok(_) => {
+            println!("[start_blob_import] Created temporary file: {}", temp_path.display());
+            ApiResponse {
+                success: true,
+                data: Some(temp_path.to_string_lossy().to_string()),
+                message: Some(format!("Import session started for '{}' ({} bytes)", target_name, file_size)),
+            }
+        },
+        Err(e) => {
+            println!("[start_blob_import] Failed to create temporary file: {}", e);
+            ApiResponse {
+                success: false,
+                data: None,
+                message: Some(format!("Failed to create temporary file: {}", e)),
+            }
+        },
+    }
+}
+
+// Command to append chunk to blob import (Mobile Only)
+#[cfg(any(target_os = "ios", target_os = "android"))]
+#[tauri::command]
+fn append_blob_chunk(temp_path: String, chunk_data: Vec<u8>) -> ApiResponse<()> {
+    println!("[append_blob_chunk] Appending {} bytes to {}", chunk_data.len(), temp_path);
+    
+    match std::fs::OpenOptions::new().append(true).open(&temp_path) {
+        Ok(mut file) => {
+            match file.write_all(&chunk_data) {
+                Ok(_) => {
+                    println!("[append_blob_chunk] Successfully appended {} bytes", chunk_data.len());
+                    ApiResponse {
+                        success: true,
+                        data: None,
+                        message: None,
+                    }
+                },
+                Err(e) => {
+                    println!("[append_blob_chunk] Failed to write chunk: {}", e);
+                    ApiResponse {
+                        success: false,
+                        data: None,
+                        message: Some(format!("Failed to write chunk: {}", e)),
+                    }
+                },
+            }
+        },
+        Err(e) => {
+            println!("[append_blob_chunk] Failed to open temp file: {}", e);
+            ApiResponse {
+                success: false,
+                data: None,
+                message: Some(format!("Failed to open temp file: {}", e)),
+            }
+        },
+    }
+}
+
+// Command to finalize chunked blob import (Mobile Only)
+#[cfg(any(target_os = "ios", target_os = "android"))]
+#[tauri::command]
+fn finalize_blob_import(app_handle: AppHandle, temp_path: String, target_name: String) -> ApiResponse<()> {
+    println!("[finalize_blob_import] Finalizing import: {} -> {}", temp_path, target_name);
+    
+    let blobs_dir = match get_blobs_directory(&app_handle) {
+        Ok(dir) => dir,
+        Err(e) => {
+            println!("[finalize_blob_import] Failed to get blobs directory: {}", e);
+            // Clean up temp file on error
+            let _ = std::fs::remove_file(&temp_path);
+            return ApiResponse {
+                success: false,
+                data: None,
+                message: Some(e),
+            };
+        }
+    };
+
+    let target_path = blobs_dir.join(&target_name);
+    
+    // Move temp file to final location
+    match std::fs::rename(&temp_path, &target_path) {
+        Ok(_) => {
+            let file_size = std::fs::metadata(&target_path)
+                .map(|m| m.len())
+                .unwrap_or(0);
+            println!("[finalize_blob_import] Successfully moved to final location: {} bytes", file_size);
+            ApiResponse {
+                success: true,
+                data: None,
+                message: Some(format!("Blob '{}' imported successfully ({} bytes)", target_name, file_size)),
+            }
+        },
+        Err(e) => {
+            println!("[finalize_blob_import] Failed to move temp file: {}", e);
+            // Clean up temp file on error
+            let _ = std::fs::remove_file(&temp_path);
+            ApiResponse {
+                success: false,
+                data: None,
+                message: Some(format!("Failed to finalize import: {}", e)),
+            }
+        },
+    }
+}
+
+// Command to cancel chunked blob import (Mobile Only)
+#[cfg(any(target_os = "ios", target_os = "android"))]
+#[tauri::command]
+fn cancel_blob_import(temp_path: String) -> ApiResponse<()> {
+    println!("[cancel_blob_import] Canceling import: {}", temp_path);
+    
+    match std::fs::remove_file(&temp_path) {
+        Ok(_) => {
+            println!("[cancel_blob_import] Successfully removed temp file");
+            ApiResponse {
+                success: true,
+                data: None,
+                message: Some("Import canceled and temporary file removed".to_string()),
+            }
+        },
+        Err(e) => {
+            println!("[cancel_blob_import] Failed to remove temp file: {}", e);
+            ApiResponse {
+                success: false,
+                data: None,
+                message: Some(format!("Failed to clean up temp file: {}", e)),
+            }
+        },
+    }
+}
+
+// Legacy command for backward compatibility (Mobile Only)
 #[cfg(any(target_os = "ios", target_os = "android"))]
 #[tauri::command]
 fn import_blob_by_content(app_handle: AppHandle, file_content: Vec<u8>, target_name: String) -> ApiResponse<()> {
-    println!("[import_blob_by_content] Starting import: {} bytes -> {}", file_content.len(), target_name);
+    println!("[import_blob_by_content] Legacy import: {} bytes -> {}", file_content.len(), target_name);
+    
+    // For files larger than 100MB, recommend using chunked import
+    if file_content.len() > 100 * 1024 * 1024 {
+        println!("[import_blob_by_content] Warning: Large file detected, consider using chunked import");
+    }
     
     // Basic validation: Ensure target name is safe
     if target_name.is_empty() || target_name.contains('/') || target_name.contains('\\') || target_name == "." || target_name == ".." {
@@ -1043,6 +1261,8 @@ fn import_blob_by_content(app_handle: AppHandle, file_content: Vec<u8>, target_n
         },
         Err(e) => {
             println!("[import_blob_by_content] Failed to write to target: {}", e);
+            // Clean up partial file
+            let _ = std::fs::remove_file(&target_path);
             ApiResponse {
                 success: false,
                 data: None,
@@ -1301,7 +1521,11 @@ pub fn run() {
                     delete_blob_from_app_data,
                     import_blob_file,
                     import_blob_by_content,
-                    export_blob_by_content
+                    export_blob_by_content,
+                    start_blob_import,
+                    append_blob_chunk,
+                    finalize_blob_import,
+                    cancel_blob_import
                 ]
             }
             #[cfg(all(target_os = "android", not(target_os = "ios")))]
@@ -1323,7 +1547,11 @@ pub fn run() {
                     delete_blob_from_app_data,
                     import_blob_file,
                     import_blob_by_content,
-                    export_blob_by_content
+                    export_blob_by_content,
+                    start_blob_import,
+                    append_blob_chunk,
+                    finalize_blob_import,
+                    cancel_blob_import
                 ]
             }
             #[cfg(not(any(target_os = "ios", target_os = "android")))]

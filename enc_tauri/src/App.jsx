@@ -87,34 +87,45 @@ function App() {
     }
   }, [setError, setMessage]); // Add state setters as dependencies
 
-  // Function to check server status and extract mode info
-  const checkServerStatus = useCallback(async () => {
-    try {
+  // Helper function to check server status and extract mode info    
+  const checkServerStatus = async (setServerMode, setAvailableBlobs) => {   
+    try { 
+      console.log('[checkServerStatus] Calling get_status...');
       const response = await invoke('get_status');
-      console.log('[checkServerStatus] Response:', response);
+      console.log('[checkServerStatus] get_status response:', response);
       
-      if (response.success && response.data) {
+      if (response.success && response.data) { 
         const data = response.data;
+        console.log('[checkServerStatus] Processing status data:', data);
         
         // Set server mode and available blobs
+        console.log('[checkServerStatus] Setting serverMode to:', data.mode);
         setServerMode(data.mode);
+        
         if (data.mode === 'directory' && data.available_blobs) {
-          console.log('[checkServerStatus] Updating available blobs:', data.available_blobs);
+          console.log('[checkServerStatus] Setting availableBlobs:', data.available_blobs);
           setAvailableBlobs(data.available_blobs);
+          
+          // Auto-select the first blob if there's only one available and none is currently selected
+          if (data.available_blobs.length === 1 && !selectedBlob) {
+            console.log('[checkServerStatus] Auto-selecting single blob:', data.available_blobs[0]);
+            setSelectedBlob(data.available_blobs[0]);
+          }
         } else {
-          console.log('[checkServerStatus] No available blobs to update. Mode:', data.mode, 'Available blobs:', data.available_blobs);
+          console.log('[checkServerStatus] No available blobs or not directory mode');
         }
         
-        return data.status === 'ready';
+        const isReady = data.status === 'ready';
+        console.log('[checkServerStatus] Status is ready:', isReady);
+        return isReady;
       }
-      
-      console.warn('[checkServerStatus] Unexpected response:', response);
+      console.warn('[checkServerStatus] Invalid response format');
       return false;
     } catch (error) {
-      console.error('[checkServerStatus] Failed to check status:', error);
+      console.error('[checkServerStatus] Error:', error);
       return false; // Default to unlock if status check fails
     }
-  }, []);
+  };
 
   // --- START: Define navigation functions BEFORE refreshFileList ---
 
@@ -168,100 +179,15 @@ function App() {
 
   // Now define refreshFileList, using the _navigateToFolder defined above
   const refreshFileList = useCallback(async () => {
-    console.log("[refreshFileList] Attempting to refresh...");
-    // Don't clear messages here, might overwrite feedback from previous actions
     try {
       const response = await invoke('get_file_tree');
-      console.log("[refreshFileList] Backend response:", response);
-      if (response.success) {
-        console.log("[refreshFileList] Received files data:", response.data?.files);
-        const fetchedFiles = response.data?.files || [];
-        setFiles(fetchedFiles); // Handle potentially missing files array
-        console.log("[refreshFileList] Files state updated.");
-
-        // Check if selected file still exists
-        if (selected && !fetchedFiles.some(f => f.path === selected)) {
-            console.log("[refreshFileList] Selected file no longer exists, clearing selection.");
-            setSelected(null);
-            setViewerType(null);
-            setFileDataUrl(null);
-        }
-
-         // Check if current folder still exists
-         if (currentFolder && !fetchedFiles.some(f => f.path.startsWith(currentFolder + '/') || f.path === currentFolder)) {
-            console.log("[refreshFileList] Current folder seems to no longer exist, navigating back.");
-            // Find the nearest existing parent or go to root
-            let parent = currentFolder.substring(0, currentFolder.lastIndexOf('/'));
-            while (parent && !fetchedFiles.some(f => f.path.startsWith(parent + '/') || f.path === parent)) {
-                parent = parent.substring(0, parent.lastIndexOf('/'));
-            }
-            // Use the internal _navigateToFolder directly as it's in scope
-            _navigateToFolder(parent || '');
-         }
-
-         // If refresh was successful and we are not in 'decoy' or 'ready' mode, set to 'ready'
-         if (mode !== 'decoy' && mode !== 'ready') {
-             console.log("[refreshFileList] Refresh successful, setting mode to 'ready'.");
-             setMode('ready');
-         }
-
-      } else {
-        console.warn("[refreshFileList] Failed to get file list:", response.message);
-        if (response.message === 'Locked' || response.message?.includes('No encryption key set')) {
-           console.log("[refreshFileList] Detected locked state, switching to unlock mode.");
-           setMode('unlock');
-           setPassword('');
-           setHiddenPassword('');
-           setConfirmPassword('');
-           setConfirmHiddenPassword('');
-           setFiles([]);
-           setSelected(null);
-           setViewerType(null);
-           setCurrentFolder('');
-           setNavigationHistory([]);
-           setCurrentVolumeType(null);
-           setGalleryView(false);
-           setIsFullscreen(false);
-           setFileDataUrl(null);
-           setError('Session locked or expired. Please unlock again.');
-           setMessage('');
-        } else {
-           setTemporaryMessage(response.message || 'Failed to get file list', true);
-           if (mode !== 'decoy') {
-               setMode('unlock');
-           }
-        }
+      if (response.success && response.data) {
+        setFiles(response.data.files);
       }
-    } catch (e) {
-      setTemporaryMessage(`Error getting file list: ${e.message || e}`, true);
-      console.error("[refreshFileList] Error invoking get_file_tree:", e);
-       if (e.toString().includes('Locked') || e.toString().includes('No encryption key set')) {
-           console.log("[refreshFileList] Detected locked state from error, switching to unlock mode.");
-           setMode('unlock');
-           setPassword('');
-           setHiddenPassword('');
-           setConfirmPassword('');
-           setConfirmHiddenPassword('');
-           setFiles([]);
-           setSelected(null);
-           setViewerType(null);
-           setCurrentFolder('');
-           setNavigationHistory([]);
-           setCurrentVolumeType(null);
-           setGalleryView(false);
-           setIsFullscreen(false);
-           setFileDataUrl(null);
-           setError('Session locked or expired. Please unlock again.');
-           setMessage('');
-       } else {
-           if (mode !== 'decoy') {
-               setMode('unlock');
-           }
-       }
+    } catch (error) {
+      console.error('Failed to refresh files:', error);
     }
-    // NOTE: _navigateToFolder is defined above, so it's stable and doesn't strictly need to be in the deps
-    // But including relevant state values is good practice.
-  }, [mode, selected, currentFolder]);
+  }, []);
 
   // Now, wrap _navigateToFolder in useCallback so it can be passed down stably
   const navigateToFolder = useCallback(_navigateToFolder, [currentFolder]);
@@ -272,7 +198,7 @@ function App() {
     if (mode !== 'decoy') {
         console.log("Initial check: Checking server status...");
         console.log("Platform detection - iOS blob import should be available");
-        checkServerStatus().then(isReady => {
+        checkServerStatus(setServerMode, setAvailableBlobs).then(isReady => {
           console.log("Initial status check completed. Ready:", isReady, "Server mode:", serverMode);
           if (isReady) {
             setMode('ready');
@@ -442,66 +368,115 @@ function App() {
   }, [setTemporaryMessage]); // Add dependencies if needed later
 
   // Initialize or unlock the encryption blob
-  const handleUnlock = async (e) => {
+  const handleUnlock = async e => {
     e.preventDefault();
-    if (!password) {
-      setTemporaryMessage('Password is required', true);
-      return;
-    }
     
-    // Validate input based on server mode
-    if (serverMode === 'directory') {
-      if (!selectedBlob) {
-        setTemporaryMessage('Please select a blob file', true);
-        return;
-      }
-    } else if (serverMode === 'desktop') {
-      if (!blobPath) {
-        setTemporaryMessage('Please select a blob file', true);
-        return;
-      }
-    }
+    console.log('[handleUnlock] =================================');
+    console.log('[handleUnlock] Starting unlock process...');
+    console.log('[handleUnlock] Raw state values:');
+    console.log('  - serverMode:', JSON.stringify(serverMode));
+    console.log('  - selectedBlob:', JSON.stringify(selectedBlob));
+    console.log('  - selectedBlob type:', typeof selectedBlob);
+    console.log('  - selectedBlob length:', selectedBlob?.length);
+    console.log('  - selectedBlob === "":', selectedBlob === "");
+    console.log('  - !selectedBlob:', !selectedBlob);
+    console.log('  - blobPath:', JSON.stringify(blobPath));
+    console.log('  - password set:', password ? 'YES' : 'NO');
+    console.log('  - availableBlobs:', JSON.stringify(availableBlobs));
+    console.log('[handleUnlock] =================================');
     
-    setIsUploading(true);
-    setError('');
-    setMessage('');
     try {
-      // Prepare parameters based on server mode
-      const params = {
-        password,
-      };
+      setIsUploading(true);
+      
+      // Prepare payload based on server mode
+      let blob_path = null;
+      let blob_name = null;
       
       if (serverMode === 'desktop') {
-        params.blobPath = blobPath;
+        console.log('[handleUnlock] Desktop mode - using blobPath:', blobPath);
+        blob_path = blobPath;
       } else if (serverMode === 'directory') {
-        params.blobName = selectedBlob;
+        console.log('[handleUnlock] Directory mode - checking selectedBlob:', selectedBlob);
+        if (!selectedBlob) {
+          console.error('[handleUnlock] No blob selected in directory mode');
+          console.log('[handleUnlock] Available blobs:', availableBlobs);
+          if (availableBlobs.length === 0) {
+            setTemporaryMessage('No blob files found. Please create a new blob or import an existing one.', true);
+          } else {
+            setTemporaryMessage(`Please select a blob file first. Available: ${availableBlobs.join(', ')}`, true);
+          }
+          return;
+        }
+        
+        // NEW: Validate that selected blob exists in available blobs
+        if (!availableBlobs.includes(selectedBlob)) {
+          console.error('[handleUnlock] Selected blob does not exist in available blobs');
+          console.log('[handleUnlock] Selected:', selectedBlob);
+          console.log('[handleUnlock] Available:', availableBlobs);
+          setTemporaryMessage(`Selected blob "${selectedBlob}" not found. Available blobs: ${availableBlobs.join(', ')}. Please select a valid blob.`, true);
+          return;
+        }
+        
+        console.log('[handleUnlock] Using selected blob:', selectedBlob);
+        blob_name = selectedBlob;
+      } else {
+        console.error('[handleUnlock] Unknown server mode:', serverMode);
+        setTemporaryMessage('Unknown server mode: ' + serverMode, true);
+        return;
       }
       
-      const response = await invoke('unlock_encryption', params);
+      // Build params object conditionally to avoid sending null values
+      const unlockParams = {
+        password
+      };
+      
+      // Only add blob_path if it's not null
+      if (blob_path !== null) {
+        unlockParams.blob_path = blob_path;
+      }
+      
+      // Only add blob_name if it's not null
+      if (blob_name !== null) {
+        unlockParams.blob_name = blob_name;
+      }
+      
+      console.log('[handleUnlock] Final parameters to send to backend:');
+      console.log('  - password: [HIDDEN]');
+      console.log('  - blob_path:', JSON.stringify(blob_path));
+      console.log('  - blob_name:', JSON.stringify(blob_name));
+      console.log('  - blob_name type:', typeof blob_name);
+      console.log('  - blob_name length:', blob_name?.length);
+      console.log('[handleUnlock] Calling invoke("unlock_encryption", params)...');
+      
+      const response = await invoke('unlock_encryption', unlockParams);
+      
+      console.log('[handleUnlock] Backend response:', response);
       
       if (response.success) {
-        // Don't set mode directly, let refreshFileList handle it
-        // setMode('ready');
-        // setFiles(response.data.files || []); // Let refreshFileList handle it
+        console.log('[handleUnlock] Unlock successful!');
+        // Attempt to parse volume type from message (improve this later if backend sends structured data)
         const message = response.message || '';
-        const match = message.match(/Unlocked (\w+) volume/);
-        setCurrentVolumeType(match && match[1] ? match[1] : 'Unknown');
-        setTemporaryMessage(message || 'Blob unlocked successfully');
-        setPassword('');
-        setConfirmPassword('');
-        setHiddenPassword('');
-        setConfirmHiddenPassword('');
-        setUploadFiles([]);
-        refreshFileList(); // Trigger refresh after successful unlock
+        if (message.includes('Standard')) {
+          setCurrentVolumeType('Standard');
+        } else if (message.includes('Hidden')) {
+          setCurrentVolumeType('Hidden');
+        } else {
+          setCurrentVolumeType('Unknown'); // Fallback
+        }
+        setMode('ready');
+        refreshFileList(); // Refresh tree on successful unlock
       } else {
-        setTemporaryMessage(response.message || 'Failed to unlock blob', true);
-        setCurrentVolumeType(null);
+        console.error('[handleUnlock] Unlock failed:', response.message);
+        setTemporaryMessage('Unlock failed: ' + (response.message || 'Unknown error'), true); 
+        setCurrentVolumeType(null); // Clear volume type on failed unlock
       }
-    } catch (e) {
-      setTemporaryMessage(`Error: ${e.message || e}`, true);
-      setCurrentVolumeType(null);
+    } catch (error) {
+      console.error('[handleUnlock] Unlock exception:', error);
+      setTemporaryMessage('An error occurred during unlock: ' + error.message, true);
+      setCurrentVolumeType(null); // Clear volume type on error
     } finally {
       setIsUploading(false);
+      console.log('[handleUnlock] Unlock process completed');
     }
   };
 
@@ -549,22 +524,22 @@ function App() {
       // Prepare arguments based on server mode
       const args = {
         password_s: password,
-        password_h: hiddenPassTrimmed === '' ? null : hiddenPassword,
       };
       
-      if (serverMode === 'desktop') {
+      // Only add password_h if it's not empty
+      if (hiddenPassTrimmed !== '') {
+        args.password_h = hiddenPassword;
+      }
+      
+      if (serverMode === 'desktop' && blobPath) {
         args.blob_path = blobPath;
-      } else if (serverMode === 'directory') {
+      } else if (serverMode === 'directory' && newBlobName.trim()) {
         args.blob_name = newBlobName.trim();
       }
       console.log('[handleInit] Invoking init_encryption with args:', JSON.stringify(args)); // Log arguments
       const response = await invoke('init_encryption', args);
 
       if (response.success) {
-        // Don't set mode directly, let auto-unlock and refreshFileList handle it
-        // setMode('ready');
-        // setFiles([]);
-        // setCurrentVolumeType('Standard'); // Let unlock determine type
         setTemporaryMessage(response.message || 'New blob created successfully');
         const initialPassword = password; // Store standard pass to unlock after init
         setPassword('');
@@ -579,66 +554,30 @@ function App() {
            const passwordForAutoUnlock = hiddenPassTrimmed !== '' ? hiddenPassword : initialPassword;
            console.log(`Auto-unlocking with ${hiddenPassTrimmed !== '' ? 'HIDDEN' : 'STANDARD'} password.`);
 
-           const unlockResponse = await invoke('unlock_encryption', {
-              password: passwordForAutoUnlock, // Use the determined password
-              blobPath
-           });
+           // Build unlock params conditionally
+           const unlockParams = {
+              password: passwordForAutoUnlock
+           };
+           
+           if (serverMode === 'desktop' && blobPath) {
+              unlockParams.blob_path = blobPath;
+           } else if (serverMode === 'directory' && newBlobName.trim()) {
+              unlockParams.blob_name = newBlobName.trim();
+           }
+           
+           const unlockResponse = await invoke('unlock_encryption', unlockParams);
            if (unlockResponse.success) {
               console.log("Auto-unlock successful.");
-              // setFiles(unlockResponse.data.files || []); // Let refresh handle this
               const unlockMsg = unlockResponse.message || '';
               const match = unlockMsg.match(/Unlocked (\w+) volume/);
               setCurrentVolumeType(match && match[1] ? match[1] : 'Unknown');
-              // Upload initial files *after* unlocking
-              if (uploadFiles.length) {
-                console.log(`Uploading ${uploadFiles.length} initial files...`);
-                let uploadSuccessCount = 0;
-                let uploadErrorCount = 0;
-                // Use path-based upload for initial files if possible
-                const initialFilePaths = uploadFiles.map(f => f.path).filter(Boolean);
-                if (initialFilePaths.length === uploadFiles.length) {
-                    console.log("[handleInit] Using path-based upload for initial files.");
-                    try {
-                        await invoke('upload_files_by_path', { absolutePaths: initialFilePaths, currentFolder: '' });
-                        // Success/error message handled by upload_complete event
-                        // We still need to wait for it, but don't need counts here
-                    } catch (uploadErr) {
-                        console.error("Error invoking initial path-based upload:", uploadErr);
-                        setTemporaryMessage('Blob created, but failed to start initial file upload.', true);
-                        // Need to trigger refresh manually if invoke fails? Or let it happen anyway?
-                        // Let refreshFileList run below
-                    }
-                } else {
-                    console.warn("[handleInit] Some initial files lack paths, falling back to data-based upload.");
-                    // Fallback to original data-based upload
-                    for (const file of uploadFiles) {
-                        try {
-                            const fileBuffer = await file.arrayBuffer();
-                            const fileData = Array.from(new Uint8Array(fileBuffer));
-                            const savePath = file.webkitRelativePath || file.name;
-                            console.log(`Initial upload (data): ${savePath}`);
-                            await invoke('upload_file_data', { fileData, savePath });
-                            uploadSuccessCount++;
-                        } catch (error) {
-                            console.error(`Error uploading initial file ${file.name}:`, error);
-                            uploadErrorCount++;
-                        }
-                    }
-                    if (uploadErrorCount > 0) {
-                       setTemporaryMessage(`Blob created, but ${uploadErrorCount} initial files failed to upload.`, true);
-                    } else if (uploadSuccessCount > 0) {
-                       setTemporaryMessage(`Blob created and ${uploadSuccessCount} initial files uploaded.`);
-                    }
-                }
-                // Refresh needed regardless of upload method to show new files
-                refreshFileList(); // Refresh after uploads initiated/completed (data-based)
-              } else {
-                 const successMsg = unlockResponse.message
-                     ? `${unlockResponse.message}. ${hiddenPassTrimmed !== '' ? 'Logged into HIDDEN volume.': ''}`
-                     : `Blob created and unlocked${hiddenPassTrimmed !== '' ? ' (HIDDEN volume)': ''}.`;
-                 setTemporaryMessage(successMsg.trim()); // Update message post-unlock with hidden info
-                 refreshFileList(); // Refresh even if no files uploaded
-              }
+              
+              const successMsg = unlockResponse.message
+                  ? `${unlockResponse.message}. ${hiddenPassTrimmed !== '' ? 'Logged into HIDDEN volume.': ''}`
+                  : `Blob created and unlocked${hiddenPassTrimmed !== '' ? ' (HIDDEN volume)': ''}.`;
+              setTemporaryMessage(successMsg.trim());
+              refreshFileList();
+              setMode('ready');
            } else {
               console.error("Auto-unlock failed after init:", unlockResponse.message);
               const failureMsg = `Blob created, but failed to auto-unlock with ${hiddenPassTrimmed !== '' ? 'HIDDEN' : 'STANDARD'} password. Please try unlocking manually.`;
@@ -727,7 +666,7 @@ function App() {
     });
   };
 
-  // Complete the import with the chosen name
+  // Complete the import with the chosen name (with chunked upload for large files)
   const completeImport = async () => {
     try {
       setIsUploading(true);
@@ -740,68 +679,30 @@ function App() {
         return;
       }
       
-      setDebugInfo(`Importing as: ${importName}\nReading file content...`);
+      setDebugInfo(`Importing as: ${importName}\nChecking file size...`);
       setImportDialog({ open: false, sourcePath: '', originalName: '', importName: '' });
       
-      // On iOS, we need to read the file content first and then pass it to backend
-      // because file paths from the picker might not be accessible to the backend
-      let fileContent;
+      // Get file size first to determine import strategy
+      let fileSize;
       try {
         const fileData = await readFile(sourcePath);
-        fileContent = Array.from(new Uint8Array(fileData));
-        setDebugInfo(`File read successfully: ${fileContent.length} bytes\nCalling backend...`);
+        fileSize = fileData.length;
+        setDebugInfo(`File size: ${fileSize} bytes (${(fileSize / 1024 / 1024).toFixed(2)} MB)`);
+        
+        // Use chunked import for files larger than 100MB
+        const CHUNK_SIZE_THRESHOLD = 100 * 1024 * 1024; // 100MB
+        
+        if (fileSize > CHUNK_SIZE_THRESHOLD) {
+          await performChunkedImport(sourcePath, importName, fileSize, fileData);
+        } else {
+          await performLegacyImport(sourcePath, importName, fileData);
+        }
+        
       } catch (readError) {
         setDebugInfo(`Failed to read file: ${readError.toString()}`);
-        setTemporaryMessage(`Failed to read selected file: ${readError}`, true);
+        setTemporaryMessage(`Failed to access selected file: ${readError}`, true);
         setIsUploading(false);
         return;
-      }
-      
-      // Send the file content to backend for import
-      const response = await invoke('import_blob_by_content', {
-        fileContent: fileContent,
-        targetName: importName
-      });
-      
-      setDebugInfo(`Backend response: ${JSON.stringify(response, null, 2)}`);
-      
-      if (response.success) {
-        setDebugInfo('Import successful! Refreshing blob list...');
-        
-        // Refresh available blobs - try multiple times to ensure it updates
-        let found = false;
-        let currentBlobs = [];
-        for (let i = 0; i < 3; i++) {
-          const statusResponse = await invoke('get_status');
-          if (statusResponse.success && statusResponse.data && statusResponse.data.available_blobs) {
-            currentBlobs = statusResponse.data.available_blobs;
-            setAvailableBlobs(currentBlobs); // Update state directly
-            setDebugInfo(`Status refresh ${i + 1}/3\nBlobs found: ${currentBlobs.length}\nList: ${JSON.stringify(currentBlobs)}`);
-            
-            // Check if the imported blob appears in the list
-            if (currentBlobs.includes(importName)) {
-              setDebugInfo(`SUCCESS! Found '${importName}' in blob list`);
-              found = true;
-              break;
-            }
-          } else {
-            setDebugInfo(`Status refresh ${i + 1}/3 failed: ${JSON.stringify(statusResponse)}`);
-          }
-          
-          // Wait a bit before retrying
-          await new Promise(resolve => setTimeout(resolve, 200));
-        }
-        
-        if (!found) {
-          setDebugInfo(`WARNING: '${importName}' not found in list after 3 attempts\nCurrent blobs: ${JSON.stringify(currentBlobs)}`);
-        }
-        
-        // Select the imported blob
-        setSelectedBlob(importName);
-        setTemporaryMessage(`Blob '${importName}' imported successfully`);
-      } else {
-        setDebugInfo(`Import failed: ${response.message}`);
-        setTemporaryMessage(`Failed to import blob: ${response.message}`, true);
       }
       
     } catch (error) {
@@ -812,6 +713,160 @@ function App() {
       // Clear debug info after 10 seconds
       setTimeout(() => setDebugInfo(''), 10000);
     }
+  };
+  
+  // Chunked import for large files
+  const performChunkedImport = async (sourcePath, importName, fileSize, fileData) => {
+    const CHUNK_SIZE = 10 * 1024 * 1024; // 10MB chunks
+    let tempPath = null;
+    
+    try {
+      setDebugInfo(`Starting chunked import for large file...\nFile size: ${(fileSize / 1024 / 1024).toFixed(2)} MB\nChunk size: ${(CHUNK_SIZE / 1024 / 1024).toFixed(2)} MB`);
+      
+      // Start the chunked import session
+      const startResponse = await invoke('start_blob_import', {
+        targetName: importName,
+        fileSize: fileSize
+      });
+      
+      if (!startResponse.success) {
+        throw new Error(startResponse.message);
+      }
+      
+      tempPath = startResponse.data;
+      setDebugInfo(`Import session started\nTemp file: ${tempPath}`);
+      
+      // Send file in chunks
+      const totalChunks = Math.ceil(fileSize / CHUNK_SIZE);
+      let bytesProcessed = 0;
+      
+      for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
+        const startByte = chunkIndex * CHUNK_SIZE;
+        const endByte = Math.min(startByte + CHUNK_SIZE, fileSize);
+        const chunkSize = endByte - startByte;
+        
+        setDebugInfo(`Processing chunk ${chunkIndex + 1}/${totalChunks}\nBytes: ${startByte}-${endByte} (${(chunkSize / 1024 / 1024).toFixed(2)} MB)\nProgress: ${((bytesProcessed / fileSize) * 100).toFixed(1)}%`);
+        
+        try {
+          // Extract chunk from file data
+          const chunkData = fileData.slice(startByte, endByte);
+          const chunkArray = Array.from(new Uint8Array(chunkData));
+          
+          // Send chunk to backend
+          const chunkResponse = await invoke('append_blob_chunk', {
+            tempPath: tempPath,
+            chunkData: chunkArray
+          });
+          
+          if (!chunkResponse.success) {
+            throw new Error(`Chunk ${chunkIndex + 1} failed: ${chunkResponse.message}`);
+          }
+          
+          bytesProcessed += chunkSize;
+          
+        } catch (chunkError) {
+          throw new Error(`Failed to process chunk ${chunkIndex + 1}: ${chunkError.message}`);
+        }
+      }
+      
+      setDebugInfo(`All chunks processed successfully\nFinalizing import...`);
+      
+      // Finalize the import
+      const finalizeResponse = await invoke('finalize_blob_import', {
+        tempPath: tempPath,
+        targetName: importName
+      });
+      
+      if (!finalizeResponse.success) {
+        throw new Error(`Finalization failed: ${finalizeResponse.message}`);
+      }
+      
+      setDebugInfo(`Chunked import completed successfully!\nFinal size: ${(fileSize / 1024 / 1024).toFixed(2)} MB`);
+      await refreshBlobListAfterImport(importName);
+      
+    } catch (error) {
+      setDebugInfo(`Chunked import failed: ${error.toString()}`);
+      
+      // Cleanup on error
+      if (tempPath) {
+        try {
+          await invoke('cancel_blob_import', { tempPath: tempPath });
+          setDebugInfo(`Cleanup completed for failed import`);
+        } catch (cleanupError) {
+          setDebugInfo(`Cleanup failed: ${cleanupError.toString()}`);
+        }
+      }
+      
+      setTemporaryMessage(`Failed to import large blob: ${error.message}`, true);
+      throw error;
+    }
+  };
+  
+  // Legacy import for smaller files
+  const performLegacyImport = async (sourcePath, importName, fileData) => {
+    try {
+      setDebugInfo(`Using legacy import for smaller file...`);
+      
+      const fileContent = Array.from(new Uint8Array(fileData));
+      setDebugInfo(`File read successfully: ${fileContent.length} bytes\nCalling backend...`);
+      
+      // Send the file content to backend for import
+      const response = await invoke('import_blob_by_content', {
+        fileContent: fileContent,
+        targetName: importName
+      });
+      
+      setDebugInfo(`Backend response: ${JSON.stringify(response, null, 2)}`);
+      
+      if (!response.success) {
+        throw new Error(response.message);
+      }
+      
+      setDebugInfo('Legacy import successful!');
+      await refreshBlobListAfterImport(importName);
+      
+    } catch (error) {
+      setDebugInfo(`Legacy import failed: ${error.toString()}`);
+      setTemporaryMessage(`Failed to import blob: ${error.message}`, true);
+      throw error;
+    }
+  };
+  
+  // Helper function to refresh blob list after import
+  const refreshBlobListAfterImport = async (importName) => {
+    setDebugInfo('Import successful! Refreshing blob list...');
+    
+    // Refresh available blobs - try multiple times to ensure it updates
+    let found = false;
+    let currentBlobs = [];
+    for (let i = 0; i < 3; i++) {
+      const statusResponse = await invoke('get_status');
+      if (statusResponse.success && statusResponse.data && statusResponse.data.available_blobs) {
+        currentBlobs = statusResponse.data.available_blobs;
+        setAvailableBlobs(currentBlobs); // Update state directly
+        setDebugInfo(`Status refresh ${i + 1}/3\nBlobs found: ${currentBlobs.length}\nList: ${JSON.stringify(currentBlobs)}`);
+        
+        // Check if the imported blob appears in the list
+        if (currentBlobs.includes(importName)) {
+          setDebugInfo(`SUCCESS! Found '${importName}' in blob list`);
+          found = true;
+          break;
+        }
+      } else {
+        setDebugInfo(`Status refresh ${i + 1}/3 failed: ${JSON.stringify(statusResponse)}`);
+      }
+      
+      // Wait a bit before retrying
+      await new Promise(resolve => setTimeout(resolve, 200));
+    }
+    
+    if (!found) {
+      setDebugInfo(`WARNING: '${importName}' not found in list after 3 attempts\nCurrent blobs: ${JSON.stringify(currentBlobs)}`);
+    }
+    
+    // Select the imported blob
+    setSelectedBlob(importName);
+    setTemporaryMessage(`Blob '${importName}' imported successfully`);
   };
 
   // Cancel import process
@@ -861,7 +916,7 @@ function App() {
         
         // Refresh available blobs - try multiple times to ensure it updates
         for (let i = 0; i < 3; i++) {
-          const statusUpdated = await checkServerStatus();
+          const statusUpdated = await checkServerStatus(setServerMode, setAvailableBlobs);
           console.log(`[handleDeleteBlob] Status update attempt ${i + 1}:`, statusUpdated);
           
           // Check if the deleted blob is gone from the list
@@ -1507,7 +1562,7 @@ function App() {
   const revealApp = useCallback(() => {
       console.log("Revealing app, checking status...");
       // Check server status first, then determine next mode
-      checkServerStatus().then(isReady => {
+      checkServerStatus(setServerMode, setAvailableBlobs).then(isReady => {
         if (isReady) {
           setMode('ready');
           refreshFileList();
@@ -1737,3 +1792,4 @@ function App() {
 }
 
 export default App;
+
