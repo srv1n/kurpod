@@ -879,3 +879,42 @@ pub fn remove_folder(
 
     Ok(true)
 }
+
+/// Compacts the blob by removing orphaned data and rewriting existing files.
+/// A temporary blob is created and then replaces the original to reclaim space.
+pub fn compact_blob(path: &Path, password_s: &str, password_h: &str) -> Result<()> {
+    // Unlock existing volumes to retrieve metadata and keys
+    let (_, key_s, metadata_s) = unlock_blob(path, password_s)?;
+    let (_, key_h, metadata_h) = unlock_blob(path, password_h)?;
+
+    // Read all file contents from the current blob
+    let mut files_s = Vec::new();
+    for (p, meta) in &metadata_s {
+        let content = get_file(path, &key_s, meta)?;
+        files_s.push((p.clone(), content, meta.mime_type.clone()));
+    }
+
+    let mut files_h = Vec::new();
+    for (p, meta) in &metadata_h {
+        let content = get_file(path, &key_h, meta)?;
+        files_h.push((p.clone(), content, meta.mime_type.clone()));
+    }
+
+    // Create temporary blob and repack all files
+    let tmp_path = path.with_extension("tmp");
+    init_blob(&tmp_path, password_s, password_h)?;
+
+    let (_, key_s_new, mut meta_s_new) = unlock_blob(&tmp_path, password_s)?;
+    let (_, key_h_new, mut meta_h_new) = unlock_blob(&tmp_path, password_h)?;
+
+    for (p, data, mime) in files_s {
+        add_file(&tmp_path, VolumeType::Standard, &key_s_new, &mut meta_s_new, &p, &data, &mime)?;
+    }
+
+    for (p, data, mime) in files_h {
+        add_file(&tmp_path, VolumeType::Hidden, &key_h_new, &mut meta_h_new, &p, &data, &mime)?;
+    }
+
+    std::fs::rename(&tmp_path, path)?;
+    Ok(())
+}
