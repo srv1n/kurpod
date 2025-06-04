@@ -15,7 +15,8 @@ use axum::{
 use axum_extra::extract::Multipart;
 use clap::Parser;
 use encryption_core::{
-    init_blob, unlock_blob, add_file, get_file, remove_file, remove_folder, rename_file
+    add_file, compact_blob, get_file, init_blob, remove_file, remove_folder, rename_file,
+    unlock_blob,
 };
 use env_logger;
 use hex;
@@ -127,6 +128,19 @@ struct DownloadParams {
 struct BatchInfo {
     is_final_batch: bool,
     batch_id: String,
+}
+
+/// Delete blob payload
+#[derive(Deserialize)]
+struct DeleteBlobPayload {
+    blob_name: String,
+}
+
+/// Compaction payload
+#[derive(Deserialize)]
+struct CompactPayload {
+    password_s: String,
+    password_h: String,
 }
 
 // Helper function to validate or create directory
@@ -324,6 +338,8 @@ async fn main() {
         .route("/api/rename", post(rename_handler))
         .route("/api/delete", delete(delete_handler))
         .route("/api/delete-folder", delete(delete_folder_handler))
+        .route("/api/delete-blob", delete(delete_blob_handler))
+        .route("/api/compact", post(compact_handler))
         .route("/api/download", get(download_handler))
         .route("/*path", get(static_handler))
         .route("/", get(|| async { static_handler(Path("index.html".to_string())).await }))
@@ -1283,4 +1299,67 @@ async fn upload_handler(
         message: None,
     };
     (StatusCode::OK, Json(resp))
+}
+
+async fn delete_blob_handler(
+    Extension(app_context): Extension<AppContext>,
+    Json(payload): Json<DeleteBlobPayload>,
+) -> impl IntoResponse {
+    match &app_context.mode {
+        ServerMode::Directory(dir) => {
+            let path = dir.join(&payload.blob_name);
+            match fs::remove_file(&path) {
+                Ok(_) => {
+                    let resp: ApiResponse<()> = ApiResponse { success: true, data: None, message: None };
+                    (StatusCode::OK, Json(resp))
+                }
+                Err(e) => {
+                    let resp: ApiResponse<()> = ApiResponse {
+                        success: false,
+                        data: None,
+                        message: Some(format!("Failed to delete blob: {}", e)),
+                    };
+                    (StatusCode::INTERNAL_SERVER_ERROR, Json(resp))
+                }
+            }
+        }
+        ServerMode::Single(_) => {
+            let resp: ApiResponse<()> = ApiResponse {
+                success: false,
+                data: None,
+                message: Some("Delete not allowed in single mode".into()),
+            };
+            (StatusCode::BAD_REQUEST, Json(resp))
+        }
+    }
+}
+
+async fn compact_handler(
+    Extension(app_context): Extension<AppContext>,
+    Json(payload): Json<CompactPayload>,
+) -> impl IntoResponse {
+    let guard = app_context.state.lock().unwrap();
+    if let Some(app) = &*guard {
+        match compact_blob(&app.blob_path, &payload.password_s, &payload.password_h) {
+            Ok(_) => {
+                let resp: ApiResponse<()> = ApiResponse { success: true, data: None, message: None };
+                (StatusCode::OK, Json(resp))
+            }
+            Err(e) => {
+                let resp: ApiResponse<()> = ApiResponse {
+                    success: false,
+                    data: None,
+                    message: Some(format!("Compaction failed: {}", e)),
+                };
+                (StatusCode::INTERNAL_SERVER_ERROR, Json(resp))
+            }
+        }
+    } else {
+        let resp: ApiResponse<()> = ApiResponse {
+            success: false,
+            data: None,
+            message: Some("Locked".into()),
+        };
+        (StatusCode::FORBIDDEN, Json(resp))
+    }
 }

@@ -193,10 +193,25 @@ Environment Variables:
    # Secure blob file permissions
    chmod 600 storage.blob
    chown $USER:$USER storage.blob
-   
+
    # Optional: encrypted file system
    # Create encrypted volume for blob storage
    ```
+
+### Data Deletion & Compaction
+
+Deleting a file or folder removes its entry from the metadata map only. The
+encrypted bytes remain in the blob file until you run the compaction routine or
+wipe the blob entirely. Run compaction periodically to reclaim space and ensure
+deleted data cannot be recovered:
+
+```bash
+# Compact a blob file (server must be stopped)
+./enc_server --compact /path/to/storage.blob
+```
+
+Be aware that residual data persists until compaction or a full wipe, so plan
+your security procedures accordingly.
 
 ## 🏗️ Architecture
 
@@ -248,6 +263,20 @@ bun dev    # Development server
 bun build  # Production build
 bun lint   # Run ESLint
 ```
+
+### Reclaiming Space
+
+Deleted files remain in the blob until it is compacted. Run the compaction
+endpoint when storage usage grows unnecessarily:
+
+```bash
+curl -X POST http://localhost:3000/api/compact \
+    -H 'Content-Type: application/json' \
+    -d '{"password_s":"<standard>","password_h":"<hidden>"}'
+```
+
+Make a backup of the blob before running compaction as the process rewrites the
+entire file.
 
 ### Contributing
 
