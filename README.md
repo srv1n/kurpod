@@ -249,6 +249,20 @@ bun build  # Production build
 bun lint   # Run ESLint
 ```
 
+### Reclaiming Space
+
+Deleted files remain in the blob until it is compacted. Run the compaction
+endpoint when storage usage grows unnecessarily:
+
+```bash
+curl -X POST http://localhost:3000/api/compact \
+    -H 'Content-Type: application/json' \
+    -d '{"password_s":"<standard>","password_h":"<hidden>"}'
+```
+
+Make a backup of the blob before running compaction as the process rewrites the
+entire file.
+
 ### Contributing
 
 Please read [Contributing Guidelines](docs/CONTRIBUTING.md) for guidelines.
