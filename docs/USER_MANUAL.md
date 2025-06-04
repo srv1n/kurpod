@@ -210,9 +210,11 @@ Once unlocked, you'll see:
 1. Right-click the item
 2. Select **"Delete"**
 3. Confirm the deletion
-4. Item will be permanently removed
+4. Item will be removed from the metadata map
 
-⚠️ **Warning**: Deleted files cannot be recovered!
+⚠️ **Warning**: `delete` removes metadata only. The encrypted bytes stay in the
+blob file until you run the compaction routine or wipe the storage. Deleted
+files remain recoverable until then.
 
 ## Security Features
 
@@ -317,6 +319,26 @@ You can create multiple independent storage files:
 ```
 
 Each runs on a different port with completely separate encryption.
+
+### Compaction Routine
+
+When you delete files, only their metadata is removed. The encrypted bytes stay
+in the blob file until you compact it. To reclaim space and permanently remove
+deleted data:
+
+```bash
+# 1. Stop the server
+sudo systemctl stop enc-server
+
+# 2. Run compaction
+./enc_server --compact /home/encserver/storage.blob
+
+# 3. Restart the server
+sudo systemctl start enc-server
+```
+
+Run compaction whenever you've deleted sensitive files or want to reduce blob
+size.
 
 ### Backup Strategy
 
@@ -456,6 +478,7 @@ RUST_LOG=trace ./enc_server    # Maximum detail
    - Monitor log files
    - Check blob file integrity
    - Update software regularly
+   - Run `./enc_server --compact <blob>` after large deletions to purge residual data
 
 ### Usage Recommendations
 

@@ -193,10 +193,25 @@ Environment Variables:
    # Secure blob file permissions
    chmod 600 storage.blob
    chown $USER:$USER storage.blob
-   
+
    # Optional: encrypted file system
    # Create encrypted volume for blob storage
    ```
+
+### Data Deletion & Compaction
+
+Deleting a file or folder removes its entry from the metadata map only. The
+encrypted bytes remain in the blob file until you run the compaction routine or
+wipe the blob entirely. Run compaction periodically to reclaim space and ensure
+deleted data cannot be recovered:
+
+```bash
+# Compact a blob file (server must be stopped)
+./enc_server --compact /path/to/storage.blob
+```
+
+Be aware that residual data persists until compaction or a full wipe, so plan
+your security procedures accordingly.
 
 ## 🏗️ Architecture
 
