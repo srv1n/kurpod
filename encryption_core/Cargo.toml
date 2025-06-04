@@ -20,6 +20,9 @@ aes-gcm = "0.10.3"
 thiserror = "1.0.61"
 hex = "0.4.3"
 
+[dev-dependencies]
+tempfile = { workspace = true }
+
 # Ensure features needed by the crate are enabled if using workspace versions
 # e.g., serde = { workspace = true, features = ["derive"] }
 

@@ -12,7 +12,7 @@ use rand::RngCore;
 use serde::{Deserialize, Serialize}; // Make sure 'serde' features = ["derive"] is in Cargo.toml
 use std::{
     collections::HashMap,
-    fs::{File, OpenOptions},
+    fs::{self, File, OpenOptions},
     io::{Read, Seek, SeekFrom, Write},
     path::Path,
 };
@@ -878,4 +878,82 @@ pub fn remove_folder(
     }
 
     Ok(true)
+}
+
+pub fn compact_blob(path: &Path, password_s: &str, password_h: &str) -> Result<()> {
+    // 1. Open the existing blob and read headers for both volumes
+    let mut file = File::open(path)?;
+    let header_s = read_standard_header(&mut file)?;
+    let header_h = read_hidden_header(&mut file)?;
+
+    // 2. Derive the old keys and read metadata blocks
+    let key_s_old = derive_key(password_s, &header_s.salt)?;
+    let metadata_s = read_metadata_block(
+        &mut file,
+        &key_s_old,
+        &header_s.nonce,
+        header_s.size,
+        STANDARD_METADATA_OFFSET,
+    )?;
+
+    let key_h_old = derive_key(password_h, &header_h.salt)?;
+    let metadata_h = read_metadata_block(
+        &mut file,
+        &key_h_old,
+        &header_h.nonce,
+        header_h.size,
+        HIDDEN_METADATA_OFFSET,
+    )?;
+
+    // Drop the file handle so we can regenerate a new blob in its place
+    drop(file);
+
+    // 3. Initialize a temporary blob on disk with fresh salts
+    let tmp_path = path.with_extension("compact_tmp");
+    init_blob(&tmp_path, password_s, password_h)?;
+
+    // 4. Unlock both volumes in the new blob to get fresh keys and mutable maps
+    let (_, key_s_new, mut map_s_new) = unlock_blob(&tmp_path, password_s)?;
+    let (_, key_h_new, mut map_h_new) = unlock_blob(&tmp_path, password_h)?;
+
+    // 5. Iterate over every file in the standard volume, read its plaintext, and re-add it
+    for (relative_path, meta) in metadata_s.iter() {
+        let data = get_file(path, &key_s_old, meta)?;
+        add_file(
+            &tmp_path,
+            VolumeType::Standard,
+            &key_s_new,
+            &mut map_s_new,
+            relative_path,
+            &data,
+            &meta.mime_type,
+        )?;
+    }
+
+    // 6. Do the same for every file in the hidden volume
+    for (relative_path, meta) in metadata_h.iter() {
+        let data = get_file(path, &key_h_old, meta)?;
+        add_file(
+            &tmp_path,
+            VolumeType::Hidden,
+            &key_h_new,
+            &mut map_h_new,
+            relative_path,
+            &data,
+            &meta.mime_type,
+        )?;
+    }
+
+    // 7. Atomically swap the old blob out for the new compacted blob
+    //    First, rename the original to a .bak in case something goes wrong
+    let backup_path = path.with_extension("bak");
+    fs::rename(path, &backup_path)?;
+
+    //    Then, move the compacted tmp file into place
+    fs::rename(&tmp_path, path)?;
+
+    //    Finally, remove the old backup blob
+    fs::remove_file(&backup_path)?;
+
+    Ok(())
 }
