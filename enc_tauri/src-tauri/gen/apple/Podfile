@@ -1,13 +1,13 @@
 # Uncomment the next line to define a global platform for your project
 
-target 'app_iOS' do
+target 'encapsule_iOS' do
 platform :ios, '13.0'
-  # Pods for app_iOS
+  # Pods for encapsule_iOS
 end
 
-target 'app_macOS' do
+target 'encapsule_macOS' do
 platform :osx, '11.0'
-  # Pods for app_macOS
+  # Pods for encapsule_macOS
 end
 
 # Delete the deployment target for iOS and macOS, causing it to be inherited from the Podfile

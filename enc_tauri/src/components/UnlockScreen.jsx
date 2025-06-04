@@ -82,13 +82,26 @@ function UnlockScreen({
            {/* {message && <div className="mb-4 p-3 bg-success/10 text-success rounded-lg text-sm border border-success/30">{message}</div>} */}
 
            <form onSubmit={handleUnlock} className="flex flex-col gap-4">
-             {/* Debug info - remove after testing */}
+             {/* Enhanced Debug info - remove after testing */}
              {process.env.NODE_ENV === 'development' && (
                <div className="text-xs text-gray-500 p-2 bg-gray-100 rounded">
                  Debug: serverMode = {JSON.stringify(serverMode)}, availableBlobs = {JSON.stringify(availableBlobs)}
                  <br />Import available: {serverMode === 'directory' ? 'YES' : 'NO'}
                </div>
              )}
+             
+             {/* Live State Debug - ALWAYS SHOW for troubleshooting */}
+             <div className="text-xs text-purple-700 p-3 bg-purple-50 border border-purple-200 rounded-lg">
+               <strong>🐛 Live Debug State:</strong><br/>
+               • selectedBlob: "{selectedBlob}" (type: {typeof selectedBlob}, length: {selectedBlob?.length || 0})<br/>
+               • availableBlobs: {JSON.stringify(availableBlobs)}<br/>
+               • serverMode: "{serverMode}"<br/>
+               • selectedBlob exists in availableBlobs: {availableBlobs.includes(selectedBlob) ? '✅ YES' : '❌ NO'}<br/>
+               • Ready to unlock: {selectedBlob && availableBlobs.includes(selectedBlob) ? '✅ YES' : '❌ NO'}<br/>
+               {selectedBlob && !availableBlobs.includes(selectedBlob) && (
+                 <span className="text-red-600 font-bold">⚠️ ERROR: Selected blob "{selectedBlob}" not found in available blobs!</span>
+               )}
+             </div>
              
              {/* Import Debug Info */}
              {debugInfo && (

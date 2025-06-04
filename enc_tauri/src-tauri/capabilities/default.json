@@ -8,7 +8,6 @@
   "permissions": [
     "core:default",
     "dialog:default",
-    "fs:default",
     "shell:default",
     "deep-link:default",
     "dialog:allow-ask",
@@ -16,8 +15,47 @@
     "dialog:allow-open",
     "dialog:allow-confirm",
     "dialog:allow-message",
-    "fs:allow-write-file",
-    "fs:allow-read-file",
-    "fs:allow-exists"
+    {
+      "identifier": "fs:default"
+    },
+    {
+      "identifier": "fs:allow-read-file"
+    },
+    {
+      "identifier": "fs:allow-write-file"
+    },
+    {
+      "identifier": "fs:allow-exists"
+    },
+    {
+      "identifier": "fs:allow-read-dir"
+    },
+    {
+      "identifier": "fs:allow-create"
+    },
+    {
+      "identifier": "fs:allow-remove"
+    },
+    {
+      "identifier": "fs:allow-rename"
+    },
+    {
+      "identifier": "fs:allow-copy-file"
+    },
+    {
+      "identifier": "fs:scope",
+      "allow": [
+        { "path": "$APPDATA" },
+        { "path": "$APPDATA/**" },
+        { "path": "$APPLOCALDATA" },
+        { "path": "$APPLOCALDATA/**" },
+        { "path": "$DOCUMENT" },
+        { "path": "$DOCUMENT/**" },
+        { "path": "$DOWNLOAD" },
+        { "path": "$DOWNLOAD/**" },
+        { "path": "$TEMP" },
+        { "path": "$TEMP/**" }
+      ]
+    }
   ]
 }

@@ -3,7 +3,7 @@
 # Exit on error
 set -e
 
-echo "Building Encryption Core Tauri Desktop App..."
+echo "Building Encryption Core Tauri iOS App..."
 
 # Navigate to Tauri directory
 cd enc_tauri
@@ -12,9 +12,15 @@ cd enc_tauri
 echo "Installing bun dependencies..."
 bun install
 
-# Build the desktop app
-echo "Building Tauri application..."
-bun run tauri build -- --target ios
+# Check if building for device or simulator
+if [ "$1" = "--device" ]; then
+    echo "Building Tauri iOS application for device..."
+    echo "Note: This requires a valid Apple Developer account and code signing setup"
+    bun run tauri ios build --target aarch64
+else
+    echo "Building Tauri iOS application for simulator..."
+    bun run tauri ios build --target aarch64-sim
+fi
 
-echo "Build completed successfully!"
-echo "The app binary can be found in enc_tauri/src-tauri/target/release" 
+echo "iOS build completed successfully!"
+echo "The app can be found in enc_tauri/src-tauri/gen/apple/build/" 

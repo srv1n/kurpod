@@ -1,6 +1,6 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "enc_tauri",
+  "productName": "ENC",
   "version": "0.1.0",
   "identifier": "com.encry.app",
   "build": {
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Mindfulness Timer",
+        "title": "ENC - Encrypted File Storage",
         "width": 900,
         "height": 700,
         "resizable": true,
@@ -35,7 +35,6 @@
     ],
     "iOS": {
       "minimumSystemVersion": "13.0"
-     
     }
   }
 }
