@@ -63,8 +63,8 @@ jobs:
 
           ### 📥 Download Instructions
           1. Download the appropriate binary for your platform below
-          2. Extract the archive: \`tar -xzf enc_server-*.tar.gz\` (or unzip \`*.zip\` for Windows)
-          3. Run the server: \`./enc_server\` (or \`enc_server.exe\` on Windows)
+          2. Extract the archive: \`tar -xzf kurpod_server-*.tar.gz\` (or unzip \`*.zip\` for Windows)
+          3. Run the server: \`./kurpod_server\` (or \`kurpod_server.exe\` on Windows)
           4. Open your browser to \`http://localhost:3000\`
 
           ### 🔐 Security Features
@@ -111,8 +111,8 @@ jobs:
 
           ### 📥 Download Instructions
           1. Download the appropriate binary for your platform below
-          2. Extract: \`tar -xzf enc_server-*.tar.gz\` (or unzip \`*.zip\` for Windows)
-          3. Run: \`./enc_server\` (or \`enc_server.exe\` on Windows)
+          2. Extract: \`tar -xzf kurpod_server-*.tar.gz\` (or unzip \`*.zip\` for Windows)
+          3. Run: \`./kurpod_server\` (or \`kurpod_server.exe\` on Windows)
 
           ### 🐳 Docker
           \`\`\`bash
@@ -229,13 +229,13 @@ jobs:
 
       - name: Build binary (native)
         if: '!matrix.cross'
-        run: cargo build --release --target ${{ matrix.target }} -p enc_server
+        run: cargo build --release --target ${{ matrix.target }} -p kurpod_server
         env:
           CARGO_TARGET_DIR: target
 
       - name: Build binary (cross-compilation)
         if: matrix.cross
-        run: cross build --release --target ${{ matrix.target }} -p enc_server
+        run: cross build --release --target ${{ matrix.target }} -p kurpod_server
         env:
           CARGO_TARGET_DIR: target
 
@@ -243,7 +243,7 @@ jobs:
         if: runner.os == 'Windows'
         run: |
           mkdir release-assets
-          copy "target\${{ matrix.target }}\release\enc_server.exe" "release-assets\"
+          copy "target\${{ matrix.target }}\release\kurpod_server.exe" "release-assets\"
           cd release-assets
           
           # Create README for Windows
@@ -251,13 +251,13 @@ jobs:
           echo "" >> README.txt
           echo "## Quick Start" >> README.txt
           echo "1. Extract this zip file" >> README.txt
-          echo "2. Run: enc_server.exe" >> README.txt
+          echo "2. Run: kurpod_server.exe" >> README.txt
           echo "3. Open browser: http://localhost:3000" >> README.txt
           echo "" >> README.txt
           echo "## Options" >> README.txt
-          echo "enc_server.exe --help              # Show all options" >> README.txt
-          echo "enc_server.exe --port 8080         # Use custom port" >> README.txt
-          echo "enc_server.exe --blob data.blob    # Use custom storage file" >> README.txt
+          echo "kurpod_server.exe --help              # Show all options" >> README.txt
+          echo "kurpod_server.exe --port 8080         # Use custom port" >> README.txt
+          echo "kurpod_server.exe --blob data.blob    # Use custom storage file" >> README.txt
           echo "" >> README.txt
           echo "## Documentation" >> README.txt
           echo "https://github.com/${{ github.repository }}" >> README.txt
@@ -265,16 +265,16 @@ jobs:
           echo "## License" >> README.txt
           echo "AGPLv3 - Free for personal use, commercial licensing available" >> README.txt
           
-          7z a "enc_server-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.zip" enc_server.exe README.txt
-          echo "ASSET_PATH=release-assets/enc_server-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.zip" >> $env:GITHUB_ENV
-          echo "ASSET_NAME=enc_server-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.zip" >> $env:GITHUB_ENV
+          7z a "kurpod_server-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.zip" kurpod_server.exe README.txt
+          echo "ASSET_PATH=release-assets/kurpod_server-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.zip" >> $env:GITHUB_ENV
+          echo "ASSET_NAME=kurpod_server-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.zip" >> $env:GITHUB_ENV
           echo "CONTENT_TYPE=application/zip" >> $env:GITHUB_ENV
 
       - name: Prepare Unix release asset
         if: runner.os != 'Windows'
         run: |
           mkdir -p release-assets
-          cp target/${{ matrix.target }}/release/enc_server release-assets/
+          cp target/${{ matrix.target }}/release/kurpod_server release-assets/
           cd release-assets
           
           # Create README for the release
@@ -283,13 +283,13 @@ jobs:
           
           ## Quick Start
           1. Extract this archive
-          2. Run: ./enc_server
+          2. Run: ./kurpod_server
           3. Open browser: http://localhost:3000
           
           ## Options
-          ./enc_server --help              # Show all options
-          ./enc_server --port 8080         # Use custom port
-          ./enc_server --blob data.blob    # Use custom storage file
+          ./kurpod_server --help              # Show all options
+          ./kurpod_server --port 8080         # Use custom port
+          ./kurpod_server --blob data.blob    # Use custom storage file
           
           ## Documentation
           https://github.com/${{ github.repository }}
@@ -303,19 +303,19 @@ jobs:
           EOF
           
           # Create the archive
-          tar -czf enc_server-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.tar.gz enc_server README.txt
+          tar -czf kurpod_server-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.tar.gz kurpod_server README.txt
           
           # Generate checksums
           if command -v sha256sum >/dev/null; then
-            sha256sum enc_server-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.tar.gz > enc_server-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.tar.gz.sha256
+            sha256sum kurpod_server-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.tar.gz > kurpod_server-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.tar.gz.sha256
           elif command -v shasum >/dev/null; then
-            shasum -a 256 enc_server-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.tar.gz > enc_server-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.tar.gz.sha256
+            shasum -a 256 kurpod_server-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.tar.gz > kurpod_server-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.tar.gz.sha256
           fi
           
-          echo "ASSET_PATH=release-assets/enc_server-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.tar.gz" >> $GITHUB_ENV
-          echo "ASSET_NAME=enc_server-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.tar.gz" >> $GITHUB_ENV
-          echo "CHECKSUM_PATH=release-assets/enc_server-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.tar.gz.sha256" >> $GITHUB_ENV
-          echo "CHECKSUM_NAME=enc_server-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.tar.gz.sha256" >> $GITHUB_ENV
+          echo "ASSET_PATH=release-assets/kurpod_server-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.tar.gz" >> $GITHUB_ENV
+          echo "ASSET_NAME=kurpod_server-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.tar.gz" >> $GITHUB_ENV
+          echo "CHECKSUM_PATH=release-assets/kurpod_server-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.tar.gz.sha256" >> $GITHUB_ENV
+          echo "CHECKSUM_NAME=kurpod_server-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.tar.gz.sha256" >> $GITHUB_ENV
           echo "CONTENT_TYPE=application/gzip" >> $GITHUB_ENV
 
       - name: Upload release binary
@@ -389,7 +389,7 @@ jobs:
                 aarch64|arm64) PLATFORM="linux-arm64" ;;
                 *) echo "Unsupported architecture: $ARCH"; exit 1 ;;
               esac
-              ARCHIVE="enc_server-v${VERSION}-${PLATFORM}.tar.gz"
+              ARCHIVE="kurpod_server-v${VERSION}-${PLATFORM}.tar.gz"
               ;;
             darwin)
               case $ARCH in
@@ -397,7 +397,7 @@ jobs:
                 arm64) PLATFORM="darwin-arm64" ;;
                 *) echo "Unsupported architecture: $ARCH"; exit 1 ;;
               esac
-              ARCHIVE="enc_server-v${VERSION}-${PLATFORM}.tar.gz"
+              ARCHIVE="kurpod_server-v${VERSION}-${PLATFORM}.tar.gz"
               ;;
             *)
               echo "Unsupported OS: $OS"
@@ -413,21 +413,21 @@ jobs:
           curl -sL "https://github.com/${REPO}/releases/download/v${VERSION}/${ARCHIVE}" | tar -xz
           
           # Make executable and move to PATH
-          chmod +x enc_server
+          chmod +x kurpod_server
           
           if [ -w "/usr/local/bin" ]; then
-            mv enc_server /usr/local/bin/
-            echo "✅ KURPOD Server installed to /usr/local/bin/enc_server"
+            mv kurpod_server /usr/local/bin/
+            echo "✅ KURPOD Server installed to /usr/local/bin/kurpod_server"
           else
             echo "ℹ️  KURPOD Server extracted to current directory"
-            echo "   Run with: ./enc_server"
-            echo "   Or move to PATH: sudo mv enc_server /usr/local/bin/"
+            echo "   Run with: ./kurpod_server"
+            echo "   Or move to PATH: sudo mv kurpod_server /usr/local/bin/"
           fi
           
           echo ""
           echo "🎉 Installation complete!"
-          echo "📖 Usage: enc_server --help"
-          echo "🌐 Start server: enc_server"
+          echo "📖 Usage: kurpod_server --help"
+          echo "🌐 Start server: kurpod_server"
           echo "📱 Open browser: http://localhost:3000"
           EOF
           
