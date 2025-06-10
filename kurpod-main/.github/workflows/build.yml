@@ -1,0 +1,190 @@
+name: Build
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: Test Suite
+    runs-on: ubuntu-24.04
+    if: "!contains(github.event.head_commit.message, '[skip-ci]')"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+      
+      - name: Run tests
+        run: cargo test --workspace --exclude enc_tauri
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-24.04
+    if: "!contains(github.event.head_commit.message, '[skip-ci]')"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+      
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      
+      - name: Run clippy
+        run: cargo clippy --workspace --exclude enc_tauri -- -D warnings
+
+  build:
+    name: Build (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    if: "!contains(github.event.head_commit.message, '[skip-ci]')"
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-24.04
+          - target: x86_64-apple-darwin
+            os: macos-13
+          - target: aarch64-apple-darwin
+            os: macos-13
+          - target: x86_64-pc-windows-msvc
+            os: windows-2022
+          - target: aarch64-pc-windows-msvc
+            os: windows-2022
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Install bun
+        uses: oven-sh/setup-bun@v2
+      
+      - name: Build frontend
+        run: |
+          cd frontend
+          bun install
+          bun run build
+      
+      - name: Build binary
+        run: cargo build --release --target ${{ matrix.target }} -p kurpod_server
+      
+      # macOS code signing
+      - name: Import Code-Signing Certificates (macOS)
+        if: runner.os == 'macOS'
+        uses: Apple-Actions/import-codesign-certs@v3
+        with:
+          p12-file-base64: ${{ secrets.APPLE_DEVELOPER_CERTIFICATE_P12_BASE64 }}
+          p12-password: ${{ secrets.APPLE_DEVELOPER_CERTIFICATE_PASSWORD }}
+      
+      - name: Sign macOS binary
+        if: runner.os == 'macOS'
+        run: |
+          codesign --force --sign "${{ secrets.APPLE_DEVELOPER_CERTIFICATE_ID }}" \
+            --options runtime \
+            --entitlements .github/entitlements.plist \
+            target/${{ matrix.target }}/release/kurpod_server
+          
+          # Verify the signature
+          codesign --verify --verbose target/${{ matrix.target }}/release/kurpod_server
+      
+      - name: Notarize macOS binary
+        if: runner.os == 'macOS'
+        run: |
+          # Create a zip file for notarization
+          cd target/${{ matrix.target }}/release
+          zip kurpod_server.zip kurpod_server
+          
+          # Submit for notarization
+          xcrun notarytool submit kurpod_server.zip \
+            --apple-id "${{ secrets.APPLE_ID }}" \
+            --password "${{ secrets.APPLE_APP_PASSWORD }}" \
+            --team-id "${{ secrets.APPLE_TEAM_ID }}" \
+            --wait
+          
+          # Extract the binary back
+          unzip -o kurpod_server.zip
+          rm kurpod_server.zip
+          
+          # Staple the notarization ticket (with retries)
+          echo "Attempting to staple notarization ticket..."
+          for i in {1..5}; do
+            if xcrun stapler staple kurpod_server; then
+              echo "Stapling successful on attempt $i"
+              xcrun stapler validate kurpod_server
+              break
+            else
+              echo "Stapling attempt $i failed, waiting 30 seconds..."
+              if [ $i -eq 5 ]; then
+                echo "Stapling failed after 5 attempts, but notarization was successful."
+                echo "The binary is notarized and will work, just without offline verification."
+              else
+                sleep 30
+              fi
+            fi
+          done
+      
+      # Linux GPG signing
+      - name: Sign Linux binary with GPG
+        if: runner.os == 'Linux'
+        run: |
+          # Setup GPG environment for non-interactive signing
+          mkdir -p ~/.gnupg
+          chmod 700 ~/.gnupg
+          
+          # Import GPG key
+          echo "${{ secrets.GPG_PRIVATE_KEY }}" | gpg --batch --import
+          
+          # Configure GPG for loopback pinentry (non-interactive)
+          echo 'pinentry-mode loopback' >> ~/.gnupg/gpg.conf
+          echo 'allow-loopback-pinentry' >> ~/.gnupg/gpg-agent.conf
+          
+          # Kill any auto-started agent so it reloads the new config
+          gpgconf --kill gpg-agent || true
+          
+          # Sign the binary (creates .sig file)
+          gpg --batch --yes \
+              --pinentry-mode loopback \
+              --passphrase "${{ secrets.GPG_PASSPHRASE }}" \
+              --local-user "${{ secrets.GPG_KEY_ID }}" \
+              --armor --detach-sign \
+              "target/${{ matrix.target }}/release/kurpod_server"
+          
+          # Verify signature
+          gpg --verify "target/${{ matrix.target }}/release/kurpod_server.asc" "target/${{ matrix.target }}/release/kurpod_server"
+      
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kurpod_server-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/kurpod_server${{ matrix.target == 'x86_64-pc-windows-msvc' && '.exe' || matrix.target == 'aarch64-pc-windows-msvc' && '.exe' || '' }}

@@ -1,0 +1,50 @@
+services:
+  kurpod:
+    image: kurpod:latest
+    build: .
+    container_name: kurpod
+    ports:
+      - "3000:3000"
+    volumes:
+      - kurpod_data:/data
+    environment:
+      - RUST_LOG=info
+    restart: unless-stopped
+    # healthcheck:
+    #   # Would need to implement --health flag or use external monitoring
+    #   test: ["CMD", "/kurpod_server", "--health"]
+    #   interval: 30s
+    #   timeout: 10s
+    #   retries: 3
+    #   start_period: 10s
+    # Security options (adjusted for distroless)
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # Distroless runs as non-root by default, so we don't need these caps
+    # cap_add:
+    #   - CHOWN
+    #   - SETUID
+    #   - SETGID
+    read_only: true
+    tmpfs:
+      - /tmp
+
+  # Optional: Reverse proxy with automatic HTTPS
+  nginx:
+    image: nginx:alpine
+    container_name: kurpod_proxy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./certs:/etc/nginx/certs:ro
+    depends_on:
+      - kurpod
+    restart: unless-stopped
+
+volumes:
+  kurpod_data:
+    driver: local
