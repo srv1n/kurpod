@@ -1,0 +1,110 @@
+# Git
+.git
+.gitignore
+.github
+
+# Rust
+target/
+**/*.rs.bk
+
+# Node
+**/node_modules
+**/npm-debug.log
+**/yarn-error.log
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Build artifacts
+dist/
+build/
+
+# Documentation
+docs/
+*.md
+
+# Tauri (excluded from open source)
+enc_tauri/
+
+# Development files
+.env
+.env.*
+*.log
+
+# Test data
+test_data/
+*.blob
+
+# Build artifacts
+target/
+dist/
+node_modules/
+*.log
+
+# Development files
+.git/
+.gitignore
+.env*
+.vscode/
+.idea/
+
+# Documentation
+*.md
+docs/
+marketing-docs/
+internal-docs/
+
+# Test files
+tests/
+**/*_test.rs
+**/*.test.js
+**/*.test.ts
+
+# Cache directories
+.cargo/
+.npm/
+.cache/
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE files
+*.swp
+*.swo
+*~
+
+# Temporary files
+*.tmp
+*.temp
+
+# Scripts that aren't needed in container
+*.sh
+!build.sh
+
+# Mobile/Tauri build artifacts
+enc_tauri/
+build_ios.sh
+deploy_ios.sh
+run_ios.sh
+test_tauri.sh
+build_tauri.sh
+run.sh
+
+# Docker files themselves
+Dockerfile*
+docker-compose*.yml
+
+# License and security files (can be added back if needed)
+LICENSE
+SECURITY.md
+CONTRIBUTING.md

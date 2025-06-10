@@ -97,7 +97,7 @@ jobs:
           bun run build
       
       - name: Build binary
-        run: cargo build --release --target ${{ matrix.target }} -p enc_server
+        run: cargo build --release --target ${{ matrix.target }} -p kurpod_server
       
       # macOS code signing
       - name: Import Code-Signing Certificates (macOS)
@@ -113,35 +113,35 @@ jobs:
           codesign --force --sign "${{ secrets.APPLE_DEVELOPER_CERTIFICATE_ID }}" \
             --options runtime \
             --entitlements .github/entitlements.plist \
-            target/${{ matrix.target }}/release/enc_server
+            target/${{ matrix.target }}/release/kurpod_server
           
           # Verify the signature
-          codesign --verify --verbose target/${{ matrix.target }}/release/enc_server
+          codesign --verify --verbose target/${{ matrix.target }}/release/kurpod_server
       
       - name: Notarize macOS binary
         if: runner.os == 'macOS'
         run: |
           # Create a zip file for notarization
           cd target/${{ matrix.target }}/release
-          zip enc_server.zip enc_server
+          zip kurpod_server.zip kurpod_server
           
           # Submit for notarization
-          xcrun notarytool submit enc_server.zip \
+          xcrun notarytool submit kurpod_server.zip \
             --apple-id "${{ secrets.APPLE_ID }}" \
             --password "${{ secrets.APPLE_APP_PASSWORD }}" \
             --team-id "${{ secrets.APPLE_TEAM_ID }}" \
             --wait
           
           # Extract the binary back
-          unzip -o enc_server.zip
-          rm enc_server.zip
+          unzip -o kurpod_server.zip
+          rm kurpod_server.zip
           
           # Staple the notarization ticket (with retries)
           echo "Attempting to staple notarization ticket..."
           for i in {1..5}; do
-            if xcrun stapler staple enc_server; then
+            if xcrun stapler staple kurpod_server; then
               echo "Stapling successful on attempt $i"
-              xcrun stapler validate enc_server
+              xcrun stapler validate kurpod_server
               break
             else
               echo "Stapling attempt $i failed, waiting 30 seconds..."
@@ -178,13 +178,13 @@ jobs:
               --passphrase "${{ secrets.GPG_PASSPHRASE }}" \
               --local-user "${{ secrets.GPG_KEY_ID }}" \
               --armor --detach-sign \
-              "target/${{ matrix.target }}/release/enc_server"
+              "target/${{ matrix.target }}/release/kurpod_server"
           
           # Verify signature
-          gpg --verify "target/${{ matrix.target }}/release/enc_server.asc" "target/${{ matrix.target }}/release/enc_server"
+          gpg --verify "target/${{ matrix.target }}/release/kurpod_server.asc" "target/${{ matrix.target }}/release/kurpod_server"
       
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: enc_server-${{ matrix.target }}
-          path: target/${{ matrix.target }}/release/enc_server${{ matrix.target == 'x86_64-pc-windows-msvc' && '.exe' || matrix.target == 'aarch64-pc-windows-msvc' && '.exe' || '' }}
+          name: kurpod_server-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/kurpod_server${{ matrix.target == 'x86_64-pc-windows-msvc' && '.exe' || matrix.target == 'aarch64-pc-windows-msvc' && '.exe' || '' }}

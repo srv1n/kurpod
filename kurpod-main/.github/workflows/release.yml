@@ -1,0 +1,423 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  create-release:
+    name: Create Release
+    runs-on: ubuntu-22.04
+    outputs:
+      upload_url: ${{ steps.create_release.outputs.upload_url }}
+      version: ${{ steps.get_version.outputs.version }}
+      release_created: ${{ steps.check_release.outputs.exists == 'false' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get version from tag
+        id: get_version
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Check if release already exists
+        id: check_release
+        run: |
+          if gh release view ${{ github.ref_name }} >/dev/null 2>&1; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "Release ${{ github.ref_name }} already exists"
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "Release ${{ github.ref_name }} does not exist"
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate changelog
+        if: steps.check_release.outputs.exists == 'false'
+        id: changelog
+        run: |
+          if [ $(git tag --list | wc -l) -eq 1 ]; then
+            # First release - include all commits
+            cat << EOF > changelog.md
+          ## 🎉 Initial Release v${{ steps.get_version.outputs.version }}
+
+          First release of KURPOD Server - a secure encrypted file storage solution!
+
+          ### ✨ Features
+          - **🔒 Military-grade encryption** using XChaCha20-Poly1305 + Argon2id
+          - **🎭 Plausible deniability** with dual volume support (standard + hidden)
+          - **🌐 Web interface** for easy file management from any device
+          - **📦 Single binary** - no complex installation required
+          - **🚀 Cross-platform** support (Linux, macOS, Windows)
+
+          ### 📥 Download Instructions
+          1. Download the appropriate binary for your platform below
+          2. Extract the archive: \`tar -xzf enc_server-*.tar.gz\` (or unzip \`*.zip\` for Windows)
+          3. Run the server: \`./enc_server\` (or \`enc_server.exe\` on Windows)
+          4. Open your browser to \`http://localhost:3000\`
+
+          ### 🔐 Security Features
+          - **Zero-knowledge architecture** - server never sees unencrypted data
+          - **Password-based encryption** with strong key derivation
+          - **File integrity verification** with authenticated encryption
+          - **Memory security** with automatic key cleanup
+
+          ### 📚 Documentation
+          - [User Manual](https://github.com/${{ github.repository }}/blob/main/docs/USER_MANUAL.md)
+          - [Architecture Documentation](https://github.com/${{ github.repository }}/blob/main/docs/ARCHITECTURE.md)
+          - [Contributing Guidelines](https://github.com/${{ github.repository }}/blob/main/docs/CONTRIBUTING.md)
+
+          ### 📋 Platform Support
+          - **Linux x86_64** (GNU and musl libc)
+          - **macOS** (Intel and Apple Silicon)
+          - **Windows** (x86_64 and ARM64)
+
+          ⚠️ **Security Notice**: This software is licensed under AGPLv3. Commercial use requires separate licensing.
+          EOF
+          else
+            # Get previous tag
+            PREV_TAG=$(git describe --tags --abbrev=0 HEAD~1)
+            cat << EOF > changelog.md
+          ## 🚀 What's Changed in v${{ steps.get_version.outputs.version }}
+
+          ### 📝 Changes Since $PREV_TAG
+          EOF
+            git log --oneline --pretty=format:"- %s" $PREV_TAG..HEAD | head -20 >> changelog.md
+            cat << EOF >> changelog.md
+
+          ### 📥 Download Instructions
+          1. Download the appropriate binary for your platform below
+          2. Extract: \`tar -xzf enc_server-*.tar.gz\` (or unzip \`*.zip\` for Windows)
+          3. Run: \`./enc_server\` (or \`enc_server.exe\` on Windows)
+
+          **Full Changelog**: https://github.com/${{ github.repository }}/compare/$PREV_TAG...${{ github.ref_name }}
+          EOF
+          fi
+          
+          echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
+          cat changelog.md >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        if: steps.check_release.outputs.exists == 'false'
+        id: create_release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "KURPOD Server ${{ github.ref_name }}"
+          body: ${{ steps.changelog.outputs.CHANGELOG }}
+          draft: false
+          prerelease: false
+          generate_release_notes: false
+
+  build-and-upload:
+    name: Build and Upload (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    needs: create-release
+    if: needs.create-release.outputs.release_created == 'true' || needs.create-release.outputs.release_created == ''
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux builds
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-22.04
+            name: linux-amd64
+            cross: false
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-22.04
+            name: linux-amd64-musl
+            cross: false
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-22.04
+            name: linux-arm64
+            cross: true
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-22.04
+            name: linux-arm64-musl
+            cross: true
+          
+          # macOS builds
+          - target: x86_64-apple-darwin
+            os: macos-13
+            name: darwin-amd64
+            cross: false
+          - target: aarch64-apple-darwin
+            os: macos-13
+            name: darwin-arm64
+            cross: false
+          
+          # Windows builds
+          - target: x86_64-pc-windows-msvc
+            os: windows-2022
+            name: windows-amd64
+            cross: false
+          - target: aarch64-pc-windows-msvc
+            os: windows-2022
+            name: windows-arm64
+            cross: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross-compilation tools
+        if: matrix.cross
+        run: cargo install cross --git https://github.com/cross-rs/cross
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.target }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Build frontend
+        run: |
+          cd frontend
+          bun install --frozen-lockfile
+          bun run build
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux' && !matrix.cross
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libssl-dev
+          if [[ "${{ matrix.target }}" == *"musl"* ]]; then
+            sudo apt-get install -y musl-tools
+          fi
+
+      - name: Build binary (native)
+        if: '!matrix.cross'
+        run: cargo build --release --target ${{ matrix.target }} -p enc_server
+        env:
+          CARGO_TARGET_DIR: target
+
+      - name: Build binary (cross-compilation)
+        if: matrix.cross
+        run: cross build --release --target ${{ matrix.target }} -p enc_server
+        env:
+          CARGO_TARGET_DIR: target
+
+      - name: Prepare Windows release asset
+        if: runner.os == 'Windows'
+        run: |
+          mkdir release-assets
+          copy "target\${{ matrix.target }}\release\enc_server.exe" "release-assets\"
+          cd release-assets
+          
+          # Create README for Windows
+          echo "KURPOD Server v${{ needs.create-release.outputs.version }} - ${{ matrix.name }}" > README.txt
+          echo "" >> README.txt
+          echo "## Quick Start" >> README.txt
+          echo "1. Extract this zip file" >> README.txt
+          echo "2. Run: enc_server.exe" >> README.txt
+          echo "3. Open browser: http://localhost:3000" >> README.txt
+          echo "" >> README.txt
+          echo "## Options" >> README.txt
+          echo "enc_server.exe --help              # Show all options" >> README.txt
+          echo "enc_server.exe --port 8080         # Use custom port" >> README.txt
+          echo "enc_server.exe --blob data.blob    # Use custom storage file" >> README.txt
+          echo "" >> README.txt
+          echo "## Documentation" >> README.txt
+          echo "https://github.com/${{ github.repository }}" >> README.txt
+          echo "" >> README.txt
+          echo "## License" >> README.txt
+          echo "AGPLv3 - Free for personal use, commercial licensing available" >> README.txt
+          
+          7z a "enc_server-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.zip" enc_server.exe README.txt
+          echo "ASSET_PATH=release-assets/enc_server-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.zip" >> $env:GITHUB_ENV
+          echo "ASSET_NAME=enc_server-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.zip" >> $env:GITHUB_ENV
+          echo "CONTENT_TYPE=application/zip" >> $env:GITHUB_ENV
+
+      - name: Prepare Unix release asset
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p release-assets
+          cp target/${{ matrix.target }}/release/enc_server release-assets/
+          cd release-assets
+          
+          # Create README for the release
+          cat << EOF > README.txt
+          KURPOD Server v${{ needs.create-release.outputs.version }} - ${{ matrix.name }}
+          
+          ## Quick Start
+          1. Extract this archive
+          2. Run: ./enc_server
+          3. Open browser: http://localhost:3000
+          
+          ## Options
+          ./enc_server --help              # Show all options
+          ./enc_server --port 8080         # Use custom port
+          ./enc_server --blob data.blob    # Use custom storage file
+          
+          ## Documentation
+          https://github.com/${{ github.repository }}
+          
+          ## Support
+          - Report issues: https://github.com/${{ github.repository }}/issues
+          - User manual: https://github.com/${{ github.repository }}/blob/main/docs/USER_MANUAL.md
+          
+          ## License
+          AGPLv3 - Free for personal use, commercial licensing available
+          EOF
+          
+          # Create the archive
+          tar -czf enc_server-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.tar.gz enc_server README.txt
+          
+          # Generate checksums
+          if command -v sha256sum >/dev/null; then
+            sha256sum enc_server-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.tar.gz > enc_server-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.tar.gz.sha256
+          elif command -v shasum >/dev/null; then
+            shasum -a 256 enc_server-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.tar.gz > enc_server-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.tar.gz.sha256
+          fi
+          
+          echo "ASSET_PATH=release-assets/enc_server-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.tar.gz" >> $GITHUB_ENV
+          echo "ASSET_NAME=enc_server-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.tar.gz" >> $GITHUB_ENV
+          echo "CHECKSUM_PATH=release-assets/enc_server-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.tar.gz.sha256" >> $GITHUB_ENV
+          echo "CHECKSUM_NAME=enc_server-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.tar.gz.sha256" >> $GITHUB_ENV
+          echo "CONTENT_TYPE=application/gzip" >> $GITHUB_ENV
+
+      - name: Upload release binary
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: ${{ env.ASSET_PATH }}
+
+      - name: Upload checksum (Unix only)
+        if: runner.os != 'Windows'
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: ${{ env.CHECKSUM_PATH }}
+
+  create-checksums:
+    name: Create Combined Checksums
+    runs-on: ubuntu-22.04
+    needs: [create-release, build-and-upload]
+    if: needs.create-release.outputs.release_created == 'true' || needs.create-release.outputs.release_created == ''
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download all release assets
+        uses: robinraju/release-downloader@v1.8
+        with:
+          tag: ${{ github.ref_name }}
+          fileName: "*"
+          out-file-path: "downloads"
+
+      - name: Generate combined checksums
+        run: |
+          cd downloads
+          
+          # Create combined SHA256 checksums file
+          cat << EOF > SHA256SUMS
+          # KURPOD Server v${{ needs.create-release.outputs.version }} - SHA256 Checksums
+          # Verify with: sha256sum -c SHA256SUMS
+          
+          EOF
+          
+          # Add checksums for all binary archives
+          for file in *.tar.gz *.zip; do
+            if [ -f "$file" ]; then
+              if command -v sha256sum >/dev/null; then
+                sha256sum "$file" >> SHA256SUMS
+              elif command -v shasum >/dev/null; then
+                shasum -a 256 "$file" >> SHA256SUMS
+              fi
+            fi
+          done
+          
+          # Create installation script
+          cat << 'EOF' > install.sh
+          #!/bin/bash
+          set -e
+          
+          # KURPOD Server Installation Script
+          VERSION="${{ needs.create-release.outputs.version }}"
+          REPO="${{ github.repository }}"
+          
+          # Detect platform
+          OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+          ARCH=$(uname -m)
+          
+          case $OS in
+            linux)
+              case $ARCH in
+                x86_64) PLATFORM="linux-amd64" ;;
+                aarch64|arm64) PLATFORM="linux-arm64" ;;
+                *) echo "Unsupported architecture: $ARCH"; exit 1 ;;
+              esac
+              ARCHIVE="enc_server-v${VERSION}-${PLATFORM}.tar.gz"
+              ;;
+            darwin)
+              case $ARCH in
+                x86_64) PLATFORM="darwin-amd64" ;;
+                arm64) PLATFORM="darwin-arm64" ;;
+                *) echo "Unsupported architecture: $ARCH"; exit 1 ;;
+              esac
+              ARCHIVE="enc_server-v${VERSION}-${PLATFORM}.tar.gz"
+              ;;
+            *)
+              echo "Unsupported OS: $OS"
+              echo "Please download manually from: https://github.com/${REPO}/releases/tag/v${VERSION}"
+              exit 1
+              ;;
+          esac
+          
+          echo "🚀 Installing KURPOD Server v${VERSION} for ${OS}-${ARCH}"
+          echo "📦 Downloading ${ARCHIVE}..."
+          
+          # Download and extract
+          curl -sL "https://github.com/${REPO}/releases/download/v${VERSION}/${ARCHIVE}" | tar -xz
+          
+          # Make executable and move to PATH
+          chmod +x enc_server
+          
+          if [ -w "/usr/local/bin" ]; then
+            mv enc_server /usr/local/bin/
+            echo "✅ KURPOD Server installed to /usr/local/bin/enc_server"
+          else
+            echo "ℹ️  KURPOD Server extracted to current directory"
+            echo "   Run with: ./enc_server"
+            echo "   Or move to PATH: sudo mv enc_server /usr/local/bin/"
+          fi
+          
+          echo ""
+          echo "🎉 Installation complete!"
+          echo "📖 Usage: enc_server --help"
+          echo "🌐 Start server: enc_server"
+          echo "📱 Open browser: http://localhost:3000"
+          EOF
+          
+          chmod +x install.sh
+
+      - name: Upload combined checksums
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: |
+            downloads/SHA256SUMS
+            downloads/install.sh
