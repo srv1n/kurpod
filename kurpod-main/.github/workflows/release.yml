@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  packages: write
 
 env:
   CARGO_TERM_COLOR: always
@@ -81,6 +82,19 @@ jobs:
           - **Linux x86_64** (GNU and musl libc)
           - **macOS** (Intel and Apple Silicon)
           - **Windows** (x86_64 and ARM64)
+          - **Docker** (Multi-arch: linux/amd64, linux/arm64)
+
+          ### 🐳 Docker Usage
+          \`\`\`bash
+          # Pull and run latest version
+          docker run -p 3000:3000 ghcr.io/srv1n/kurpod:latest
+          
+          # Run with persistent storage
+          docker run -p 3000:3000 -v ./data:/app/data ghcr.io/srv1n/kurpod:latest
+          
+          # Run specific version
+          docker run -p 3000:3000 ghcr.io/srv1n/kurpod:v${{ steps.get_version.outputs.version }}
+          \`\`\`
 
           ⚠️ **Security Notice**: This software is licensed under AGPLv3. Commercial use requires separate licensing.
           EOF
@@ -99,6 +113,11 @@ jobs:
           1. Download the appropriate binary for your platform below
           2. Extract: \`tar -xzf enc_server-*.tar.gz\` (or unzip \`*.zip\` for Windows)
           3. Run: \`./enc_server\` (or \`enc_server.exe\` on Windows)
+
+          ### 🐳 Docker
+          \`\`\`bash
+          docker run -p 3000:3000 ghcr.io/srv1n/kurpod:v${{ steps.get_version.outputs.version }}
+          \`\`\`
 
           **Full Changelog**: https://github.com/${{ github.repository }}/compare/$PREV_TAG...${{ github.ref_name }}
           EOF
@@ -421,3 +440,64 @@ jobs:
           files: |
             downloads/SHA256SUMS
             downloads/install.sh
+
+  docker-build:
+    name: Build and Push Docker Images
+    runs-on: ubuntu-22.04
+    needs: create-release
+    if: needs.create-release.outputs.release_created == 'true' || needs.create-release.outputs.release_created == ''
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Build frontend
+        run: |
+          cd frontend
+          bun install --frozen-lockfile
+          bun run build
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=ref,event=tag
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            VERSION=${{ needs.create-release.outputs.version }}

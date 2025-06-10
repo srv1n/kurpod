@@ -50,12 +50,30 @@ RUN export CARGO_TARGET=$(cat /target.txt) && \
 # Runtime stage - use distroless for minimal but functional image
 FROM gcr.io/distroless/cc-debian12
 
-# Copy the binary
-COPY --from=builder /kurpod_server /kurpod_server
+# Set work directory
+WORKDIR /app
+
+# Copy the binary with correct ownership
+COPY --from=builder --chown=65532:65532 /kurpod_server /app/kurpod_server
+
+# Switch to non-root user
+USER 65532:65532
 
 # Expose port
 EXPOSE 3000
 
-# Default command
-ENTRYPOINT ["/kurpod_server"]
-CMD ["--port", "3000", "--blob-dir", "/blobs"]
+# Volume for persistent data
+VOLUME ["/app/data"]
+
+# Add build-time metadata
+ARG VERSION
+LABEL org.opencontainers.image.title="KURPOD Server"
+LABEL org.opencontainers.image.description="Secure encrypted file storage server with plausible deniability"
+LABEL org.opencontainers.image.version="${VERSION}"
+LABEL org.opencontainers.image.source="https://github.com/srv1n/kurpod"
+LABEL org.opencontainers.image.licenses="AGPL-3.0"
+LABEL org.opencontainers.image.vendor="KURPOD"
+
+# Default command - store data in /app/data volume
+ENTRYPOINT ["/app/kurpod_server"]
+CMD ["--port", "3000", "--blob", "/app/data/storage.blob"]
