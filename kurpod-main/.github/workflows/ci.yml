@@ -1,12 +1,9 @@
 name: CI
 
 on:
-  push:
-    branches: [ main, develop ]
   pull_request:
     branches: [ main ]
-  release:
-    types: [ created ]
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
@@ -97,88 +94,3 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  release:
-    name: Release
-    needs: [test, security-audit, frontend-test]
-    if: github.event_name == 'release'
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        include:
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-musl
-            asset_name: kurpod-linux-amd64
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            asset_name: kurpod-windows-amd64.exe
-          - os: macos-latest
-            target: x86_64-apple-darwin
-            asset_name: kurpod-macos-amd64
-          - os: macos-latest
-            target: aarch64-apple-darwin
-            asset_name: kurpod-macos-arm64
-    
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Install Rust
-        uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          target: ${{ matrix.target }}
-      
-      - name: Build release binary
-        run: cargo build --release --target ${{ matrix.target }}
-      
-      - name: Upload release asset
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ github.event.release.upload_url }}
-          asset_path: ./target/${{ matrix.target }}/release/kurpod_server${{ matrix.os == 'windows-latest' && '.exe' || '' }}
-          asset_name: ${{ matrix.asset_name }}
-          asset_content_type: application/octet-stream
-
-  docker-publish:
-    name: Publish Docker Image
-    needs: [test, security-audit, frontend-test]
-    if: github.event_name == 'release' || github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-      
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-      
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
-      
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: srv1n/kurpod
-          tags: |
-            type=ref,event=branch
-            type=ref,event=pr
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
-            type=sha
-      
-      - name: Build and push
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max

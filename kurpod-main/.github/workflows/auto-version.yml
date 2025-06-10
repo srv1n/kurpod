@@ -1,12 +1,17 @@
 name: Auto Version and Release
 
 on:
-  push:
-    branches: [ main ]
-    paths-ignore:
-      - '**.md'
-      - '.github/**'
-      - 'docs/**'
+  workflow_dispatch:
+    inputs:
+      bump_type:
+        description: 'Version bump type'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+        - patch
+        - minor
+        - major
 
 permissions:
   contents: write
@@ -34,31 +39,10 @@ jobs:
           fi
           echo "current=$CURRENT_VERSION" >> $GITHUB_OUTPUT
 
-      - name: Determine version bump
+      - name: Set version bump
         id: version_bump
         run: |
-          # Check commit messages since last tag for version bump indicators
-          if git tag --list | grep -q "v"; then
-            LAST_TAG=$(git describe --tags --abbrev=0)
-            COMMITS=$(git log --oneline $LAST_TAG..HEAD)
-          else
-            COMMITS=$(git log --oneline)
-          fi
-          
-          # Default to patch bump
-          BUMP_TYPE="patch"
-          
-          # Check for breaking changes or major version indicators
-          if echo "$COMMITS" | grep -E "(BREAKING CHANGE|breaking change|\[major\])" > /dev/null; then
-            BUMP_TYPE="major"
-          # Check for new features or minor version indicators
-          elif echo "$COMMITS" | grep -E "(feat:|feature:|add:|new:|enhancement:|\[minor\])" > /dev/null; then
-            BUMP_TYPE="minor"
-          # Check for bug fixes or patch version indicators  
-          elif echo "$COMMITS" | grep -E "(fix:|bugfix:|patch:|hotfix:|\[patch\])" > /dev/null; then
-            BUMP_TYPE="patch"
-          fi
-          
+          BUMP_TYPE="${{ github.event.inputs.bump_type }}"
           echo "bump_type=$BUMP_TYPE" >> $GITHUB_OUTPUT
 
       - name: Calculate new version
