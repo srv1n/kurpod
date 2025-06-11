@@ -13,7 +13,7 @@ NC='\033[0m' # No Color
 IMAGE_NAME="kurpod"
 TAG="${TAG:-latest}"
 
-echo -e "${GREEN}Building multi-architecture Docker images for $IMAGE_NAME:$TAG${NC}"
+echo -e "${GREEN}Building multi-architecture Docker images for $IMAGE_NAME:$TAG (scratch-optimized)${NC}"
 
 # Check if Docker Buildx is available
 if ! docker buildx version > /dev/null 2>&1; then
@@ -45,8 +45,8 @@ else
     echo -e "${YELLOW}Could not determine disk space${NC}"
 fi
 
-if [ "$AVAILABLE_SPACE" != "unknown" ] && [ "$AVAILABLE_SPACE" -lt 10 ] 2>/dev/null; then
-    echo -e "${RED}Warning: Less than 10GB available. Multi-arch builds need more space.${NC}"
+if [ "$AVAILABLE_SPACE" != "unknown" ] && [ "$AVAILABLE_SPACE" -lt 8 ] 2>/dev/null; then
+    echo -e "${RED}Warning: Less than 8GB available. Multi-arch builds need more space.${NC}"
     echo "Consider cleaning up Docker first: docker system prune -a"
     read -p "Continue anyway? (y/N): " -n 1 -r
     echo
@@ -55,16 +55,20 @@ if [ "$AVAILABLE_SPACE" != "unknown" ] && [ "$AVAILABLE_SPACE" -lt 10 ] 2>/dev/n
     fi
 fi
 
+# Get version for build args
+VERSION=${VERSION:-$(date +%Y%m%d-%H%M%S)}
+
 # Build and push for multiple architectures
-echo -e "${BLUE}Building for linux/amd64 and linux/arm64...${NC}"
+echo -e "${BLUE}Building for linux/amd64 and linux/arm64 with scratch optimization...${NC}"
 
 # Build for local use (load)
 if [ "$1" = "--load" ]; then
     echo -e "${YELLOW}Building for current platform only (--load)...${NC}"
     docker buildx build \
         --platform linux/amd64 \
+        --build-arg VERSION="$VERSION" \
         --tag "$IMAGE_NAME:$TAG" \
-        --tag "$IMAGE_NAME:$(date +%Y%m%d-%H%M%S)" \
+        --tag "$IMAGE_NAME:$VERSION" \
         --load \
         .
 else
@@ -78,16 +82,18 @@ else
     if [[ $REPLY =~ ^[Yy]$ ]]; then
         docker buildx build \
             --platform linux/amd64,linux/arm64 \
+            --build-arg VERSION="$VERSION" \
             --tag "$IMAGE_NAME:$TAG" \
-            --tag "$IMAGE_NAME:$(date +%Y%m%d-%H%M%S)" \
+            --tag "$IMAGE_NAME:$VERSION" \
             --push \
             .
     else
         echo -e "${YELLOW}Building multi-arch image locally (won't be available in docker images)...${NC}"
         docker buildx build \
             --platform linux/amd64,linux/arm64 \
+            --build-arg VERSION="$VERSION" \
             --tag "$IMAGE_NAME:$TAG" \
-            --tag "$IMAGE_NAME:$(date +%Y%m%d-%H%M%S)" \
+            --tag "$IMAGE_NAME:$VERSION" \
             .
     fi
 fi
@@ -98,12 +104,23 @@ echo -e "${GREEN}Multi-architecture build completed!${NC}"
 if [ "$1" = "--load" ]; then
     echo -e "${BLUE}Image details:${NC}"
     docker images "$IMAGE_NAME:$TAG"
+    echo -e "${GREEN}Scratch-based image size optimization achieved!${NC}"
+    echo ""
     echo -e "${GREEN}To run the container:${NC}"
-    echo "docker run -p 3000:3000 -v \$(pwd)/data:/data $IMAGE_NAME:$TAG"
+    echo -e "${YELLOW}Basic usage:${NC}"
+    echo "docker run -p 3000:3000 $IMAGE_NAME:$TAG"
+    echo ""
+    echo -e "${YELLOW}With persistent storage:${NC}"
+    echo "docker run -p 3000:3000 -v \$(pwd)/data:/app/data $IMAGE_NAME:$TAG"
+    echo ""
+    echo -e "${YELLOW}Custom port:${NC}"
+    echo "docker run -p 8080:8080 -v \$(pwd)/data:/app/data $IMAGE_NAME:$TAG --port 8080"
+    echo ""
     echo -e "${GREEN}Or use docker-compose:${NC}"
     echo "docker-compose up -d"
 else
     echo -e "${YELLOW}Multi-arch images built and pushed to registry${NC}"
     echo -e "${GREEN}To pull and run on any platform:${NC}"
-    echo "docker run -p 3000:3000 -v \$(pwd)/data:/data $IMAGE_NAME:$TAG"
+    echo -e "${YELLOW}Basic:${NC} docker run -p 3000:3000 $IMAGE_NAME:$TAG"
+    echo -e "${YELLOW}Persistent:${NC} docker run -p 3000:3000 -v \$(pwd)/data:/app/data $IMAGE_NAME:$TAG"
 fi 
