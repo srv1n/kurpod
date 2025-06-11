@@ -249,6 +249,90 @@ jobs:
         env:
           CARGO_TARGET_DIR: target
 
+      # macOS code signing and notarization
+      - name: Import Code-Signing Certificates (macOS)
+        if: runner.os == 'macOS'
+        uses: Apple-Actions/import-codesign-certs@v3
+        with:
+          p12-file-base64: ${{ secrets.APPLE_DEVELOPER_CERTIFICATE_P12_BASE64 }}
+          p12-password: ${{ secrets.APPLE_DEVELOPER_CERTIFICATE_PASSWORD }}
+      
+      - name: Sign macOS binary
+        if: runner.os == 'macOS'
+        run: |
+          codesign --force --sign "${{ secrets.APPLE_DEVELOPER_CERTIFICATE_ID }}" \
+            --options runtime \
+            --entitlements .github/entitlements.plist \
+            target/${{ matrix.target }}/release/kurpod_server
+          
+          # Verify the signature
+          codesign --verify --verbose target/${{ matrix.target }}/release/kurpod_server
+      
+      - name: Notarize macOS binary
+        if: runner.os == 'macOS'
+        run: |
+          # Create a zip file for notarization
+          cd target/${{ matrix.target }}/release
+          zip kurpod_server.zip kurpod_server
+          
+          # Submit for notarization
+          xcrun notarytool submit kurpod_server.zip \
+            --apple-id "${{ secrets.APPLE_ID }}" \
+            --password "${{ secrets.APPLE_APP_PASSWORD }}" \
+            --team-id "${{ secrets.APPLE_TEAM_ID }}" \
+            --wait
+          
+          # Extract the binary back
+          unzip -o kurpod_server.zip
+          rm kurpod_server.zip
+          
+          # Staple the notarization ticket (with retries)
+          echo "Attempting to staple notarization ticket..."
+          for i in {1..5}; do
+            if xcrun stapler staple kurpod_server; then
+              echo "Stapling successful on attempt $i"
+              xcrun stapler validate kurpod_server
+              break
+            else
+              echo "Stapling attempt $i failed, waiting 30 seconds..."
+              if [ $i -eq 5 ]; then
+                echo "Stapling failed after 5 attempts, but notarization was successful."
+                echo "The binary is notarized and will work, just without offline verification."
+              else
+                sleep 30
+              fi
+            fi
+          done
+
+      # Linux GPG signing
+      - name: Sign Linux binary with GPG
+        if: runner.os == 'Linux'
+        run: |
+          # Setup GPG environment for non-interactive signing
+          mkdir -p ~/.gnupg
+          chmod 700 ~/.gnupg
+          
+          # Import GPG key
+          echo "${{ secrets.GPG_PRIVATE_KEY }}" | gpg --batch --import
+          
+          # Configure GPG for loopback pinentry (non-interactive)
+          echo 'pinentry-mode loopback' >> ~/.gnupg/gpg.conf
+          echo 'allow-loopback-pinentry' >> ~/.gnupg/gpg-agent.conf
+          
+          # Kill any auto-started agent so it reloads the new config
+          gpgconf --kill gpg-agent || true
+          
+          # Sign the binary (creates .sig file)
+          gpg --batch --yes \
+              --pinentry-mode loopback \
+              --passphrase "${{ secrets.GPG_PASSPHRASE }}" \
+              --local-user "${{ secrets.GPG_KEY_ID }}" \
+              --armor --detach-sign \
+              "target/${{ matrix.target }}/release/kurpod_server"
+          
+          # Verify signature
+          gpg --verify "target/${{ matrix.target }}/release/kurpod_server.asc" "target/${{ matrix.target }}/release/kurpod_server"
+
       - name: Prepare Windows release asset
         if: runner.os == 'Windows'
         run: |
@@ -285,6 +369,12 @@ jobs:
         run: |
           mkdir -p release-assets
           cp target/${{ matrix.target }}/release/kurpod_server release-assets/
+          
+          # Copy signature files for Linux
+          if [ "${{ runner.os }}" = "Linux" ] && [ -f "target/${{ matrix.target }}/release/kurpod_server.asc" ]; then
+            cp target/${{ matrix.target }}/release/kurpod_server.asc release-assets/
+          fi
+          
           cd release-assets
           
           # Create README for the release
@@ -313,7 +403,11 @@ jobs:
           EOF
           
           # Create the archive
-          tar -czf kurpod-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.tar.gz kurpod_server README.txt
+          if [ "${{ runner.os }}" = "Linux" ] && [ -f "kurpod_server.asc" ]; then
+            tar -czf kurpod-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.tar.gz kurpod_server kurpod_server.asc README.txt
+          else
+            tar -czf kurpod-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.tar.gz kurpod_server README.txt
+          fi
           
           # Generate checksums
           if command -v sha256sum >/dev/null; then
@@ -323,10 +417,7 @@ jobs:
           fi
           
           echo "ASSET_PATH=release-assets/kurpod-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.tar.gz" >> $GITHUB_ENV
-          echo "ASSET_NAME=kurpod-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.tar.gz" >> $GITHUB_ENV
           echo "CHECKSUM_PATH=release-assets/kurpod-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.tar.gz.sha256" >> $GITHUB_ENV
-          echo "CHECKSUM_NAME=kurpod-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.tar.gz.sha256" >> $GITHUB_ENV
-          echo "CONTENT_TYPE=application/gzip" >> $GITHUB_ENV
 
       - name: Upload release binary
         uses: softprops/action-gh-release@v1

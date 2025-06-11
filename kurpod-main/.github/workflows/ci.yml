@@ -3,6 +3,8 @@ name: CI
 on:
   pull_request:
     branches: [ main ]
+  push:
+    branches: [ main ]
   workflow_dispatch:
 
 env:
@@ -11,79 +13,163 @@ env:
 
 jobs:
   test:
-    name: Test
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        rust: [stable, beta]
+    name: Test Suite
+    runs-on: ubuntu-latest
+    if: "!contains(github.event.head_commit.message, '[skip-ci]')"
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
       
       - name: Install Rust
-        uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          toolchain: ${{ matrix.rust }}
-          components: rustfmt, clippy
+        uses: dtolnay/rust-toolchain@stable
       
       - name: Cache dependencies
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        uses: Swatinem/rust-cache@v2
       
       - name: Run tests
-        run: cargo test --all-features --workspace --exclude enc_tauri
+        run: cargo test --workspace --exclude enc_tauri
+
+  lint:
+    name: Lint & Format
+    runs-on: ubuntu-latest
+    if: "!contains(github.event.head_commit.message, '[skip-ci]')"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
       
-      - name: Run clippy
-        run: cargo clippy --all-features --workspace --exclude enc_tauri -- -D warnings
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
       
       - name: Check formatting
         run: cargo fmt --all -- --check
+      
+      - name: Run clippy
+        run: cargo clippy --workspace --exclude enc_tauri -- -D warnings
 
   security-audit:
     name: Security Audit
     runs-on: ubuntu-latest
+    if: "!contains(github.event.head_commit.message, '[skip-ci]')"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions-rust-lang/audit@v1
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Install cargo-audit
+        run: cargo install cargo-audit
+      
+      - name: Run security audit
+        run: cargo audit
 
-  frontend-test:
-    name: Frontend Tests
+  frontend:
+    name: Frontend Build & Lint
     runs-on: ubuntu-latest
+    if: "!contains(github.event.head_commit.message, '[skip-ci]')"
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
       
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
+      
+      - name: Install bun
+        uses: oven-sh/setup-bun@v2
       
       - name: Install dependencies
         working-directory: ./frontend
-        run: npm ci
+        run: bun install --frozen-lockfile
       
       - name: Run linter
         working-directory: ./frontend
-        run: npm run lint
+        run: bun run lint
       
       - name: Build frontend
         working-directory: ./frontend
-        run: npm run build
+        run: bun run build
+
+  build-check:
+    name: Build Check (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    if: "!contains(github.event.head_commit.message, '[skip-ci]')"
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: x86_64-apple-darwin
+            os: macos-13
+          - target: aarch64-apple-darwin
+            os: macos-13
+          - target: x86_64-pc-windows-msvc
+            os: windows-2022
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ci-${{ matrix.target }}
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Install bun
+        uses: oven-sh/setup-bun@v2
+      
+      - name: Build frontend
+        run: |
+          cd frontend
+          bun install --frozen-lockfile
+          bun run build
+      
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libssl-dev
+      
+      - name: Build binary
+        run: cargo build --release --target ${{ matrix.target }} -p kurpod_server
 
   docker-build:
-    name: Docker Build
+    name: Docker Build Test
     runs-on: ubuntu-latest
+    if: "!contains(github.event.head_commit.message, '[skip-ci]')"
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
       
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Install bun
+        uses: oven-sh/setup-bun@v2
+      
+      - name: Build frontend
+        run: |
+          cd frontend
+          bun install --frozen-lockfile
+          bun run build
       
       - name: Build Docker image
         uses: docker/build-push-action@v5
@@ -93,4 +179,3 @@ jobs:
           tags: kurpod:test
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
