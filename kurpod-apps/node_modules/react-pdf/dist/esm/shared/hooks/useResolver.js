@@ -1,0 +1,16 @@
+import { useReducer } from 'react';
+function reducer(state, action) {
+    switch (action.type) {
+        case 'RESOLVE':
+            return { value: action.value, error: undefined };
+        case 'REJECT':
+            return { value: false, error: action.error };
+        case 'RESET':
+            return { value: undefined, error: undefined };
+        default:
+            return state;
+    }
+}
+export default function useResolver() {
+    return useReducer((reducer), { value: undefined, error: undefined });
+}

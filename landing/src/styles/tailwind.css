@@ -1,0 +1,16 @@
+@import 'tailwindcss';
+
+@theme {
+  --font-sans: Switzer, system-ui, sans-serif;
+
+  --radius-4xl: 2rem;
+}
+
+@keyframes move-x {
+  0% {
+    transform: translateX(var(--move-x-from));
+  }
+  100% {
+    transform: translateX(var(--move-x-to));
+  }
+}

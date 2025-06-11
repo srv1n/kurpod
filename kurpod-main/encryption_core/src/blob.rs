@@ -1,12 +1,10 @@
 use anyhow::{anyhow, Result};
 use argon2::{Argon2, Params};
-use bincode;
 use chacha20poly1305::{
     aead::{Aead, AeadCore, KeyInit},
     Key, XChaCha20Poly1305, XNonce,
 };
 use log::{error, info, warn};
-use mime_guess; // Make sure 'mime_guess' is in Cargo.toml
 use rand::rngs::OsRng;
 use rand::RngCore;
 use serde::{Deserialize, Serialize}; // Make sure 'serde' features = ["derive"] is in Cargo.toml
@@ -82,7 +80,7 @@ struct HiddenHeaderInfo {
 fn derive_key(password: &str, salt: &[u8]) -> Result<[u8; 32]> {
     let params =
         Params::new(65536, 3, 1, None).map_err(|e| anyhow!("argon2 params error: {}", e))?;
-    let argon2 = Argon2::default();
+    let argon2 = Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params);
     let mut key = [0u8; 32];
     argon2
         .hash_password_into(password.as_bytes(), salt, &mut key)

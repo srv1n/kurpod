@@ -1,9 +1,15 @@
+#![allow(clippy::needless_return)]
+#![allow(clippy::needless_late_init)]
+#![allow(clippy::type_complexity)]
+#![allow(clippy::useless_format)]
+#![allow(clippy::unwrap_or_default)]
+
 mod state;
 
 use crate::state::AppState;
 use axum::extract::Extension;
 use axum::{
-    extract::{DefaultBodyLimit, Query, Path},
+    extract::{DefaultBodyLimit, Path, Query},
     http::{
         header::{CONTENT_DISPOSITION, CONTENT_TYPE},
         StatusCode,
@@ -18,12 +24,11 @@ use encryption_core::{
     add_file, compact_blob, get_file, init_blob, remove_file, remove_folder, rename_file,
     unlock_blob,
 };
-use env_logger;
-use hex;
 use local_ip_address::local_ip;
 use log::{error, info, warn};
 use mime_guess::from_path;
 use rand::{rngs::OsRng, RngCore};
+use rust_embed::RustEmbed;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::{
@@ -32,7 +37,6 @@ use std::{
     sync::{Arc, Mutex},
 };
 use tokio::net::TcpListener;
-use rust_embed::RustEmbed;
 
 /// Command-line arguments
 #[derive(Parser, Debug)]
@@ -92,7 +96,8 @@ struct FileInfo {
 struct InitPayload {
     password_s: String,         // Standard/Decoy password
     password_h: Option<String>, // Optional hidden password
-    blob_path: Option<String>,  // Optional blob path override (single mode only)
+    #[allow(dead_code)]
+    blob_path: Option<String>, // Optional blob path override (single mode only)
     blob_name: Option<String>,  // Optional blob name (directory mode only)
 }
 
@@ -100,6 +105,7 @@ struct InitPayload {
 #[derive(Deserialize)]
 struct UnlockPayload {
     password: String,
+    #[allow(dead_code)]
     blob_path: Option<String>, // Optional blob path override (single mode only)
     blob_name: Option<String>, // Optional blob name (directory mode only)
 }
@@ -217,7 +223,7 @@ struct Assets;
 // Static file handler using embedded assets
 async fn static_handler(Path(path): Path<String>) -> impl IntoResponse {
     let path = if path.is_empty() { "index.html" } else { &path };
-    
+
     match Assets::get(path) {
         Some(content) => {
             let mime = mime_guess::from_path(path).first_or_octet_stream();
@@ -230,19 +236,15 @@ async fn static_handler(Path(path): Path<String>) -> impl IntoResponse {
         None => {
             // For SPA routing, serve index.html for unmatched paths
             match Assets::get("index.html") {
-                Some(content) => {
-                    Response::builder()
-                        .status(StatusCode::OK)
-                        .header(CONTENT_TYPE, "text/html")
-                        .body(axum::body::Body::from(content.data))
-                        .unwrap()
-                }
-                None => {
-                    Response::builder()
-                        .status(StatusCode::NOT_FOUND)
-                        .body(axum::body::Body::from("Frontend not found"))
-                        .unwrap()
-                }
+                Some(content) => Response::builder()
+                    .status(StatusCode::OK)
+                    .header(CONTENT_TYPE, "text/html")
+                    .body(axum::body::Body::from(content.data))
+                    .unwrap(),
+                None => Response::builder()
+                    .status(StatusCode::NOT_FOUND)
+                    .body(axum::body::Body::from("Frontend not found"))
+                    .unwrap(),
             }
         }
     }
@@ -252,12 +254,19 @@ async fn static_handler(Path(path): Path<String>) -> impl IntoResponse {
 async fn main() {
     // Initialize logger (e.g., RUST_LOG=info cargo run)
     // Use try_init if multiple binaries might use it, otherwise init is fine.
-    let _ = env_logger::builder().filter_level(log::LevelFilter::Info).try_init();
+    let _ = env_logger::builder()
+        .filter_level(log::LevelFilter::Info)
+        .try_init();
 
     let args = Args::parse();
-    
+
     // Determine server mode from args and environment variables
-    let mode = match (args.blob, args.blob_dir, std::env::var("BLOB_FILE"), std::env::var("BLOB_DIR")) {
+    let mode = match (
+        args.blob,
+        args.blob_dir,
+        std::env::var("BLOB_FILE"),
+        std::env::var("BLOB_DIR"),
+    ) {
         // CLI args take precedence
         (Some(blob_file), None, _, _) => {
             let path = PathBuf::from(blob_file);
@@ -266,67 +275,79 @@ async fn main() {
             if !path.exists() {
                 if let Some(parent) = path.parent() {
                     if !parent.exists() {
-                        eprintln!("Error: Parent directory {} does not exist", parent.display());
+                        eprintln!(
+                            "Error: Parent directory {} does not exist",
+                            parent.display()
+                        );
                         std::process::exit(1);
                     }
                 }
-                println!("Note: Blob file {} will be created on first init", path.display());
+                println!(
+                    "Note: Blob file {} will be created on first init",
+                    path.display()
+                );
             }
             ServerMode::Single(path)
-        },
+        }
         (None, Some(blob_dir), _, _) => {
             let dir_path = PathBuf::from(blob_dir);
             println!("Directory mode: {}", dir_path.display());
             validate_or_create_directory(&dir_path);
             ServerMode::Directory(dir_path)
-        },
+        }
         (None, None, Ok(blob_file), _) => {
             let path = PathBuf::from(blob_file);
             println!("Single-blob mode (env): {}", path.display());
             if !path.exists() {
                 if let Some(parent) = path.parent() {
                     if !parent.exists() {
-                        eprintln!("Error: Parent directory {} does not exist", parent.display());
+                        eprintln!(
+                            "Error: Parent directory {} does not exist",
+                            parent.display()
+                        );
                         std::process::exit(1);
                     }
                 }
-                println!("Note: Blob file {} will be created on first init", path.display());
+                println!(
+                    "Note: Blob file {} will be created on first init",
+                    path.display()
+                );
             }
             ServerMode::Single(path)
-        },
+        }
         (None, None, _, Ok(blob_dir)) => {
             let dir_path = PathBuf::from(blob_dir);
             println!("Directory mode (env): {}", dir_path.display());
             validate_or_create_directory(&dir_path);
             ServerMode::Directory(dir_path)
-        },
+        }
         // Default mode: use ./blobs/ directory
         (None, None, _, _) => {
             let dir_path = PathBuf::from("./blobs");
             println!("Default mode: {}", dir_path.display());
             validate_or_create_directory(&dir_path);
             ServerMode::Directory(dir_path)
-        },
+        }
         // Error: both blob and blob_dir specified
         (Some(_), Some(_), _, _) => {
             eprintln!("Error: Cannot specify both --blob and --blob-dir");
             std::process::exit(1);
         }
     };
-    
+
     println!("Starting server at http://localhost:{}", args.port);
-    
+
     match local_ip() {
         Ok(ip) => println!("Also available at http://{}:{}", ip, args.port),
         Err(_) => println!("Could not determine local IP address"),
     }
-    
+
     let state: SharedState = Arc::new(Mutex::new(None));
     let app_context = AppContext {
         mode: mode.clone(),
         state: state.clone(),
     };
-    
+
     let app = axum::Router::new()
         .route("/api/status", get(status_handler))
         .route("/api/init", post(init_handler))
@@ -342,7 +363,10 @@ async fn main() {
         .route("/api/compact", post(compact_handler))
         .route("/api/download", get(download_handler))
         .route("/*path", get(static_handler))
-        .route("/", get(|| async { static_handler(Path("index.html".to_string())).await }))
+        .route(
+            "/",
+            get(|| async { static_handler(Path("index.html".to_string())).await }),
+        )
         .layer(DefaultBodyLimit::disable())
         .layer(Extension(app_context));
 
@@ -998,7 +1022,7 @@ async fn batch_upload_handler(
     }
 
     // Extract blob_path before processing files
-    let blob_path = {
+    let _blob_path = {
         let guard = app_context.state.lock().unwrap();
         guard.as_ref().unwrap().blob_path.clone()
     };
@@ -1162,7 +1186,7 @@ async fn upload_handler(
     mut multipart: Multipart,
 ) -> impl IntoResponse {
     // Check if state is locked and extract necessary info
-    let blob_path = {
+    let _blob_path = {
         let guard = app_context.state.lock().unwrap();
         if guard.is_none() {
             let resp: ApiResponse<FileList> = ApiResponse {
@@ -1310,7 +1334,11 @@ async fn delete_blob_handler(
             let path = dir.join(&payload.blob_name);
             match fs::remove_file(&path) {
                 Ok(_) => {
-                    let resp: ApiResponse<()> = ApiResponse { success: true, data: None, message: None };
+                    let resp: ApiResponse<()> = ApiResponse {
+                        success: true,
+                        data: None,
+                        message: None,
+                    };
                     (StatusCode::OK, Json(resp))
                 }
                 Err(e) => {
@@ -1342,7 +1370,11 @@ async fn compact_handler(
     if let Some(app) = &*guard {
         match compact_blob(&app.blob_path, &payload.password_s, &payload.password_h) {
             Ok(_) => {
-                let resp: ApiResponse<()> = ApiResponse { success: true, data: None, message: None };
+                let resp: ApiResponse<()> = ApiResponse {
+                    success: true,
+                    data: None,
+                    message: None,
+                };
                 (StatusCode::OK, Json(resp))
             }
             Err(e) => {

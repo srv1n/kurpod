@@ -48,14 +48,7 @@ fn deletion_and_compaction() {
     let size_before = std::fs::metadata(&blob_path).unwrap().len();
 
     // 3. Delete one file
-    let removed = remove_file(
-        &blob_path,
-        VolumeType::Standard,
-        &key,
-        &mut meta,
-        "b.txt",
-    )
-    .unwrap();
+    let removed = remove_file(&blob_path, VolumeType::Standard, &key, &mut meta, "b.txt").unwrap();
     assert!(removed);
     assert!(!meta.contains_key("b.txt"));
 
@@ -83,4 +76,3 @@ fn deletion_and_compaction() {
         assert!(get_file(&blob_path, &key_after, &m).is_err());
     }
 }
-

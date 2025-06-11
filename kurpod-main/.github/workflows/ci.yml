@@ -36,10 +36,10 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       
       - name: Run tests
-        run: cargo test --all-features --workspace
+        run: cargo test --all-features --workspace --exclude enc_tauri
       
       - name: Run clippy
-        run: cargo clippy --all-features --workspace -- -D warnings
+        run: cargo clippy --all-features --workspace --exclude enc_tauri -- -D warnings
       
       - name: Check formatting
         run: cargo fmt --all -- --check

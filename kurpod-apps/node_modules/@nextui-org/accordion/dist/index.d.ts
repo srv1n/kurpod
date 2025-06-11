@@ -1,0 +1,16 @@
+export { default as AccordionItem, AccordionItemIndicatorProps, AccordionItemBaseProps as AccordionItemProps } from './base/accordion-item-base.js';
+export { default as Accordion, AccordionProps } from './accordion.js';
+export { useAccordionItem } from './use-accordion-item.js';
+export { useAccordion } from './use-accordion.js';
+import '@nextui-org/theme';
+import '@nextui-org/system';
+import '@nextui-org/aria-utils';
+import '@react-types/shared';
+import 'react';
+import 'framer-motion';
+import '@react-types/accordion';
+import '@nextui-org/react-utils';
+import '@react-stately/tree';
+import '@nextui-org/divider';
+import './accordion-item.js';
+import 'tailwind-variants';

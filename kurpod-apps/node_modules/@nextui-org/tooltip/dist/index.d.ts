@@ -1,0 +1,11 @@
+export { default as Tooltip, TooltipProps } from './tooltip.js';
+export { OverlayPlacement as TooltipPlacement } from '@nextui-org/aria-utils';
+export { useTooltip } from './use-tooltip.js';
+import '@nextui-org/system';
+import 'react';
+import '@nextui-org/theme';
+import '@react-types/tooltip';
+import '@react-types/overlays';
+import 'framer-motion';
+import '@react-aria/overlays';
+import '@nextui-org/react-utils';

@@ -47,8 +47,8 @@ jobs:
 
           ### 📥 Download Instructions
           1. Download the appropriate binary for your platform below
-          2. Extract the archive: \`tar -xzf enc_server-*.tar.gz\`
-          3. Run the server: \`./enc_server\`
+          2. Extract the archive: \`tar -xzf kurpod_server-*.tar.gz\`
+          3. Run the server: \`./kurpod_server\`
           4. Open your browser to \`http://localhost:3000\`
 
           ### 📋 Available Platforms
@@ -72,8 +72,8 @@ jobs:
 
           ### 📥 Download Instructions
           1. Download the appropriate binary for your platform below
-          2. Extract: \`tar -xzf enc_server-*.tar.gz\`
-          3. Run: \`./enc_server\`
+          2. Extract: \`tar -xzf kurpod_server-*.tar.gz\`
+          3. Run: \`./kurpod_server\`
 
           **Full Changelog**: https://github.com/${{ github.repository }}/compare/$PREV_TAG...${{ github.ref_name }}
           EOF
@@ -151,7 +151,7 @@ jobs:
           sudo apt-get install -y pkg-config libssl-dev
 
       - name: Build binary
-        run: cargo build --release --target ${{ matrix.target }} -p enc_server
+        run: cargo build --release --target ${{ matrix.target }} -p kurpod_server
         env:
           CARGO_TARGET_DIR: target
 
@@ -159,16 +159,16 @@ jobs:
         if: runner.os == 'Windows'
         run: |
           mkdir release-assets
-          copy "target\${{ matrix.target }}\release\enc_server.exe" "release-assets\"
+          copy "target\${{ matrix.target }}\release\kurpod_server.exe" "release-assets\"
           cd release-assets
-          7z a "enc_server-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.zip" enc_server.exe
-          echo "ASSET_PATH=release-assets/enc_server-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.zip" >> $env:GITHUB_ENV
+          7z a "kurpod-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.zip" kurpod_server.exe
+          echo "ASSET_PATH=release-assets/kurpod-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.zip" >> $env:GITHUB_ENV
 
       - name: Prepare Unix release asset
         if: runner.os != 'Windows'
         run: |
           mkdir -p release-assets
-          cp target/${{ matrix.target }}/release/enc_server release-assets/
+          cp target/${{ matrix.target }}/release/kurpod_server release-assets/
           cd release-assets
           
           # Create README for the release
@@ -177,7 +177,7 @@ jobs:
           
           ## Quick Start
           1. Extract this archive
-          2. Run: ./enc_server
+          2. Run: ./kurpod_server
           3. Open browser: http://localhost:3000
           
           ## Documentation
@@ -187,8 +187,8 @@ jobs:
           AGPLv3 - Free for personal use, commercial licensing available
           EOF
           
-          tar -czf enc_server-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.tar.gz enc_server README.txt
-          echo "ASSET_PATH=release-assets/enc_server-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.tar.gz" >> $GITHUB_ENV
+          tar -czf kurpod-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.tar.gz kurpod_server README.txt
+          echo "ASSET_PATH=release-assets/kurpod-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.tar.gz" >> $GITHUB_ENV
 
       - name: Upload release binary
         uses: softprops/action-gh-release@v1

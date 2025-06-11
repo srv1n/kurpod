@@ -1,0 +1,10 @@
+export { default as Breadcrumbs, BreadcrumbsProps } from './breadcrumbs.js';
+export { default as BreadcrumbItem, BreadcrumbItemProps } from './breadcrumb-item.js';
+export { useBreadcrumbs } from './use-breadcrumbs.js';
+export { useBreadcrumbItem } from './use-breadcrumb-item.js';
+import '@nextui-org/system';
+import 'tailwind-variants';
+import 'react';
+import '@nextui-org/theme';
+import '@react-types/breadcrumbs';
+import '@nextui-org/react-utils';

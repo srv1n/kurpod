@@ -1,0 +1,12 @@
+import { PDF_ROLE_TO_HTML_ROLE } from './constants.js';
+import type { StructTreeContent, StructTreeNode } from 'pdfjs-dist/types/src/display/api.js';
+import type { StructTreeNodeWithExtraAttributes } from './types.js';
+type PdfRole = keyof typeof PDF_ROLE_TO_HTML_ROLE;
+type Attributes = React.HTMLAttributes<HTMLElement>;
+export declare function isPdfRole(role: string): role is PdfRole;
+export declare function isStructTreeNode(node: StructTreeNode | StructTreeContent): node is StructTreeNode;
+export declare function isStructTreeNodeWithOnlyContentChild(node: StructTreeNode | StructTreeContent): boolean;
+export declare function getRoleAttributes(node: StructTreeNode | StructTreeContent): Attributes;
+export declare function getBaseAttributes(node: StructTreeNodeWithExtraAttributes | StructTreeContent): Attributes;
+export declare function getAttributes(node: StructTreeNodeWithExtraAttributes | StructTreeContent): Attributes | null;
+export {};

@@ -1,0 +1,12 @@
+export { default as Avatar, AvatarProps } from './avatar.js';
+export { default as AvatarGroup, AvatarGroupProps } from './avatar-group.js';
+export { useAvatar } from './use-avatar.js';
+export { useAvatarGroup } from './use-avatar-group.js';
+export { AvatarIcon } from './avatar-icon.js';
+export { AvatarGroupProvider, useAvatarGroupContext } from './avatar-group-context.js';
+import '@nextui-org/system';
+import 'tailwind-variants';
+import 'react';
+import '@nextui-org/theme';
+import '@nextui-org/react-utils';
+import 'react/jsx-runtime';

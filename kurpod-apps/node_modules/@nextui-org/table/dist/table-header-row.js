@@ -1,0 +1,60 @@
+"use client";
+"use strict";
+var __defProp = Object.defineProperty;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
+};
+var __copyProps = (to, from, except, desc) => {
+  if (from && typeof from === "object" || typeof from === "function") {
+    for (let key of __getOwnPropNames(from))
+      if (!__hasOwnProp.call(to, key) && key !== except)
+        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+  }
+  return to;
+};
+var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
+
+// src/table-header-row.tsx
+var table_header_row_exports = {};
+__export(table_header_row_exports, {
+  default: () => table_header_row_default
+});
+module.exports = __toCommonJS(table_header_row_exports);
+var import_system = require("@nextui-org/system");
+var import_react_utils = require("@nextui-org/react-utils");
+var import_shared_utils = require("@nextui-org/shared-utils");
+var import_table = require("@react-aria/table");
+var import_utils = require("@react-aria/utils");
+var import_jsx_runtime = require("react/jsx-runtime");
+var TableHeaderRow = (0, import_system.forwardRef)((props, ref) => {
+  var _a, _b;
+  const { as, className, children, node, slots, classNames, state, ...otherProps } = props;
+  const Component = as || "tr";
+  const shouldFilterDOMProps = typeof Component === "string";
+  const domRef = (0, import_react_utils.useDOMRef)(ref);
+  const { rowProps } = (0, import_table.useTableHeaderRow)({ node }, state, domRef);
+  const trStyles = (0, import_shared_utils.clsx)(classNames == null ? void 0 : classNames.tr, className, (_a = node.props) == null ? void 0 : _a.className);
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+    Component,
+    {
+      ref: domRef,
+      ...(0, import_utils.mergeProps)(
+        rowProps,
+        (0, import_react_utils.filterDOMProps)(node.props, {
+          enabled: shouldFilterDOMProps
+        }),
+        otherProps
+      ),
+      className: (_b = slots.tr) == null ? void 0 : _b.call(slots, { class: trStyles }),
+      children
+    }
+  );
+});
+TableHeaderRow.displayName = "NextUI.TableHeaderRow";
+var table_header_row_default = TableHeaderRow;
+// Annotate the CommonJS export names for ESM import in node:
+0 && (module.exports = {});

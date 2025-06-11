@@ -1,0 +1,298 @@
+@import "tailwindcss";
+
+/* NextUI Provider Wrapper styles */
+.nextui-app-wrapper {
+  min-height: 100vh;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+}
+
+/* Mobile sidebar transition styles */
+.mobile-sidebar {
+  transition: transform 200ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Professional loading states */
+.loading-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.loading-dots::after {
+  content: '';
+  display: inline-block;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background-color: currentColor;
+  animation: loading-pulse 1.5s infinite;
+}
+
+@keyframes loading-pulse {
+  0%, 80%, 100% {
+    opacity: 0.3;
+  }
+  40% {
+    opacity: 1;
+  }
+}
+
+/* Professional glassmorphism effects for modals/overlays */
+.glass-bg {
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.dark .glass-bg {
+  background: rgba(0, 0, 0, 0.8);
+}
+
+/* Modern file preview container */
+.file-preview-container {
+  @apply rounded-lg overflow-hidden shadow-lg;
+  background: var(--nextui-colors-background);
+  border: 1px solid var(--nextui-colors-border);
+}
+
+/* Gallery view styles */
+.gallery-overlay {
+  background: rgba(0, 0, 0, 0.95);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+/* Mobile touch targets */
+.mobile-touch-target {
+  min-width: 44px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Smooth transitions for interactive elements */
+.interactive-element {
+  transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Professional focus states */
+:focus-visible {
+  outline: 2px solid var(--nextui-colors-primary);
+  outline-offset: 2px;
+  border-radius: var(--nextui-radii-md);
+}
+
+/* Hide scrollbar for cleaner look on mobile */
+.hide-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Responsive container padding */
+.responsive-padding {
+  padding: 1rem;
+}
+
+@media (min-width: 640px) {
+  .responsive-padding {
+    padding: 1.5rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .responsive-padding {
+    padding: 2rem;
+  }
+}
+
+/* File type icon colors */
+.file-icon-image { color: var(--nextui-colors-success); }
+.file-icon-video { color: var(--nextui-colors-secondary); }
+.file-icon-audio { color: var(--nextui-colors-primary); }
+.file-icon-document { color: var(--nextui-colors-warning); }
+.file-icon-folder { color: var(--nextui-colors-warning); }
+
+/* Status indicators */
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.status-dot.success { background-color: var(--nextui-colors-success); }
+.status-dot.warning { background-color: var(--nextui-colors-warning); }
+.status-dot.error { background-color: var(--nextui-colors-error); }
+.status-dot.info { background-color: var(--nextui-colors-primary); }
+
+/* Modern card hover effects */
+.card-hover {
+  transition: all 200ms ease;
+}
+
+.card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1);
+}
+
+/* Professional button states */
+.btn-professional {
+  position: relative;
+  overflow: hidden;
+  transition: all 200ms ease;
+}
+
+.btn-professional::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
+  transform: translate(-50%, -50%);
+  transition: width 0.6s, height 0.6s;
+}
+
+.btn-professional:active::before {
+  width: 300px;
+  height: 300px;
+}
+
+/* Fullscreen mode adjustments */
+.fullscreen-mode {
+  padding: 0 !important;
+}
+
+/* Professional tooltip styles (if needed) */
+.tooltip {
+  @apply absolute z-50 px-2 py-1 text-xs font-medium text-white bg-gray-900 rounded-md shadow-lg;
+  @apply invisible opacity-0 transition-all duration-200;
+}
+
+.tooltip.show {
+  @apply visible opacity-100;
+}
+
+/* Modern scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--nextui-colors-background);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--nextui-colors-default-400);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--nextui-colors-default-500);
+}
+
+/* Drag and drop zone styling */
+.drag-zone {
+  border: 2px dashed var(--nextui-colors-primary);
+  background: var(--nextui-colors-primary-50);
+  transition: all 200ms ease;
+}
+
+.drag-zone.active {
+  background: var(--nextui-colors-primary-100);
+  border-color: var(--nextui-colors-primary-500);
+}
+
+/* Professional form field styling */
+.form-field-modern {
+  transition: all 200ms ease;
+}
+
+.form-field-modern:focus-within {
+  transform: translateY(-1px);
+}
+
+/* Modern modal backdrop */
+.modal-backdrop {
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+/* File list item hover states */
+.file-list-item {
+  transition: all 150ms ease;
+}
+
+.file-list-item:hover {
+  background: var(--nextui-colors-default-100);
+}
+
+/* Professional empty state */
+.empty-state {
+  @apply flex flex-col items-center justify-center p-8 text-center;
+}
+
+.empty-state-icon {
+  @apply w-16 h-16 mb-4 text-default-400;
+}
+
+/* Modern badge styles */
+.badge-modern {
+  @apply inline-flex items-center px-2 py-1 text-xs font-medium rounded-full;
+  background: var(--nextui-colors-default-100);
+  color: var(--nextui-colors-default-700);
+}
+
+/* Professional divider */
+.divider-modern {
+  @apply relative my-4;
+  height: 1px;
+  background: var(--nextui-colors-divider);
+}
+
+/* Responsive text sizing */
+.text-responsive {
+  @apply text-sm sm:text-base;
+}
+
+.heading-responsive {
+  @apply text-lg sm:text-xl md:text-2xl;
+}
+
+/* Animation utilities */
+@keyframes slide-in {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.animate-slide-in {
+  animation: slide-in 200ms ease-out;
+}
+
+.animate-fade-in {
+  animation: fade-in 300ms ease-out;
+}

@@ -1,0 +1,324 @@
+@import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+/* NextUI Theme Variables */
+:root {
+  /* NextUI Light Theme Colors */
+  --nextui-colors-background: #ffffff;
+  --nextui-colors-foreground: #11181c;
+  --nextui-colors-divider: rgba(17, 24, 28, 0.15);
+  --nextui-colors-focus: #006fee;
+  --nextui-colors-content1: #ffffff;
+  --nextui-colors-content2: #f4f4f5;
+  --nextui-colors-content3: #e4e4e7;
+  --nextui-colors-content4: #d4d4d8;
+  
+  /* Primary colors */
+  --nextui-colors-primary-50: #e6f1fe;
+  --nextui-colors-primary-100: #cce3fd;
+  --nextui-colors-primary-200: #99c7fb;
+  --nextui-colors-primary-300: #66aaf9;
+  --nextui-colors-primary-400: #338ef7;
+  --nextui-colors-primary-500: #006fee;
+  --nextui-colors-primary-600: #005bc4;
+  --nextui-colors-primary-700: #004493;
+  --nextui-colors-primary-800: #002e62;
+  --nextui-colors-primary-900: #001731;
+  --nextui-colors-primary: #006fee;
+  --nextui-colors-primary-foreground: #ffffff;
+  
+  /* Secondary colors */
+  --nextui-colors-secondary-50: #f2eafa;
+  --nextui-colors-secondary-100: #e4d4f4;
+  --nextui-colors-secondary-200: #c9a9e9;
+  --nextui-colors-secondary-300: #ae7ede;
+  --nextui-colors-secondary-400: #9353d3;
+  --nextui-colors-secondary-500: #7828c8;
+  --nextui-colors-secondary-600: #6020a0;
+  --nextui-colors-secondary-700: #481878;
+  --nextui-colors-secondary-800: #301050;
+  --nextui-colors-secondary-900: #180828;
+  --nextui-colors-secondary: #7828c8;
+  --nextui-colors-secondary-foreground: #ffffff;
+  
+  /* Success colors */
+  --nextui-colors-success-50: #e8faf0;
+  --nextui-colors-success-100: #d1f4e0;
+  --nextui-colors-success-200: #a3e9c1;
+  --nextui-colors-success-300: #75dea2;
+  --nextui-colors-success-400: #47d383;
+  --nextui-colors-success-500: #17c964;
+  --nextui-colors-success-600: #12a150;
+  --nextui-colors-success-700: #0e793c;
+  --nextui-colors-success-800: #095028;
+  --nextui-colors-success-900: #052814;
+  --nextui-colors-success: #17c964;
+  --nextui-colors-success-foreground: #ffffff;
+  
+  /* Warning colors */
+  --nextui-colors-warning-50: #fefce8;
+  --nextui-colors-warning-100: #fef9c3;
+  --nextui-colors-warning-200: #fef08a;
+  --nextui-colors-warning-300: #fde047;
+  --nextui-colors-warning-400: #facc15;
+  --nextui-colors-warning-500: #f5a524;
+  --nextui-colors-warning-600: #c4841d;
+  --nextui-colors-warning-700: #936316;
+  --nextui-colors-warning-800: #62420e;
+  --nextui-colors-warning-900: #312107;
+  --nextui-colors-warning: #f5a524;
+  --nextui-colors-warning-foreground: #000000;
+  
+  /* Error colors */
+  --nextui-colors-error-50: #fee7ef;
+  --nextui-colors-error-100: #fccfdf;
+  --nextui-colors-error-200: #f99fbf;
+  --nextui-colors-error-300: #f76f9f;
+  --nextui-colors-error-400: #f43f7f;
+  --nextui-colors-error-500: #f31260;
+  --nextui-colors-error-600: #c20e4d;
+  --nextui-colors-error-700: #920b3a;
+  --nextui-colors-error-800: #610726;
+  --nextui-colors-error-900: #310413;
+  --nextui-colors-error: #f31260;
+  --nextui-colors-error-foreground: #ffffff;
+  
+  /* Default colors */
+  --nextui-colors-default-50: #fafafa;
+  --nextui-colors-default-100: #f4f4f5;
+  --nextui-colors-default-200: #e4e4e7;
+  --nextui-colors-default-300: #d4d4d8;
+  --nextui-colors-default-400: #a1a1aa;
+  --nextui-colors-default-500: #71717a;
+  --nextui-colors-default-600: #52525b;
+  --nextui-colors-default-700: #3f3f46;
+  --nextui-colors-default-800: #27272a;
+  --nextui-colors-default-900: #18181b;
+  --nextui-colors-default: #d4d4d8;
+  --nextui-colors-default-foreground: #000000;
+  
+  /* Border radius */
+  --nextui-radii-xs: 4px;
+  --nextui-radii-sm: 8px;
+  --nextui-radii-md: 12px;
+  --nextui-radii-lg: 14px;
+  --nextui-radii-xl: 18px;
+  --nextui-radii-2xl: 24px;
+  
+  /* Shadows */
+  --nextui-shadows-xs: 0 2px 4px 0 rgb(0 0 0 / 0.05);
+  --nextui-shadows-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --nextui-shadows-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  --nextui-shadows-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+  --nextui-shadows-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+}
+
+/* NextUI Dark Theme */
+.dark {
+  --nextui-colors-background: #000000;
+  --nextui-colors-foreground: #ecedee;
+  --nextui-colors-divider: rgba(255, 255, 255, 0.15);
+  --nextui-colors-focus: #006fee;
+  --nextui-colors-content1: #18181b;
+  --nextui-colors-content2: #27272a;
+  --nextui-colors-content3: #3f3f46;
+  --nextui-colors-content4: #52525b;
+  
+  /* Dark theme color adjustments */
+  --nextui-colors-primary: #338ef7;
+  --nextui-colors-primary-foreground: #ffffff;
+  --nextui-colors-secondary: #9353d3;
+  --nextui-colors-secondary-foreground: #ffffff;
+  --nextui-colors-success: #17c964;
+  --nextui-colors-success-foreground: #000000;
+  --nextui-colors-warning: #f5a524;
+  --nextui-colors-warning-foreground: #000000;
+  --nextui-colors-error: #f43f7f;
+  --nextui-colors-error-foreground: #ffffff;
+  --nextui-colors-default: #3f3f46;
+  --nextui-colors-default-foreground: #ecedee;
+}
+
+/* Base styles */
+* {
+  border-color: var(--nextui-colors-divider);
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--nextui-colors-background);
+  color: var(--nextui-colors-foreground);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+  font-weight: 400;
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  line-height: 1.5;
+  min-height: 100vh;
+}
+
+/* Modern scrollbar styling */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--nextui-colors-content2);
+  border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--nextui-colors-default-400);
+  border-radius: 5px;
+  border: 2px solid var(--nextui-colors-content2);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--nextui-colors-default-500);
+}
+
+/* Smooth transitions */
+* {
+  transition-property: background-color, border-color, color, fill, stroke, opacity, box-shadow, transform, filter, backdrop-filter;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 150ms;
+}
+
+/* Focus states */
+:focus-visible {
+  outline: 2px solid var(--nextui-colors-focus);
+  outline-offset: 2px;
+  border-radius: var(--nextui-radii-sm);
+}
+
+input:focus-visible,
+button:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--nextui-colors-focus);
+  outline-offset: 2px;
+}
+
+/* Typography */
+h1, h2, h3, h4, h5, h6 {
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  line-height: 1.25;
+}
+
+h1 { font-size: 2.5rem; }
+h2 { font-size: 2rem; }
+h3 { font-size: 1.5rem; }
+h4 { font-size: 1.25rem; }
+h5 { font-size: 1.125rem; }
+h6 { font-size: 1rem; }
+
+/* Links */
+a {
+  color: var(--nextui-colors-primary);
+  text-decoration: none;
+  transition: color 150ms ease;
+}
+
+a:hover {
+  color: var(--nextui-colors-primary-600);
+}
+
+/* Selection */
+::selection {
+  background-color: var(--nextui-colors-primary);
+  color: var(--nextui-colors-primary-foreground);
+}
+
+/* Utilities */
+.text-muted {
+  color: var(--nextui-colors-default-500);
+}
+
+.text-small {
+  font-size: 0.875rem;
+}
+
+.text-tiny {
+  font-size: 0.75rem;
+}
+
+.text-large {
+  font-size: 1.125rem;
+}
+
+/* Container */
+.container {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 0 1rem;
+}
+
+@media (min-width: 640px) {
+  .container { padding: 0 1.5rem; }
+}
+
+@media (min-width: 1024px) {
+  .container { padding: 0 2rem; }
+}
+
+/* Animation classes */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.animate-pulse {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+/* Professional utility classes */
+.backdrop-blur {
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.shadow-modern {
+  box-shadow: var(--nextui-shadows-md);
+}
+
+.shadow-modern-lg {
+  box-shadow: var(--nextui-shadows-lg);
+}
+
+.rounded-modern {
+  border-radius: var(--nextui-radii-md);
+}
+
+/* Remove all input/button default styles for NextUI */
+input, button, select, textarea {
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+}
+
+button {
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 0;
+}
+
+/* Responsive font sizes */
+@media (max-width: 640px) {
+  body { font-size: 14px; }
+  h1 { font-size: 2rem; }
+  h2 { font-size: 1.5rem; }
+  h3 { font-size: 1.25rem; }
+}
