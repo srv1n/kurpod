@@ -63,7 +63,7 @@ jobs:
 
           ### 📥 Download Instructions
           1. Download the appropriate binary for your platform below
-          2. Extract the archive: \`tar -xzf kurpod_server-*.tar.gz\` (or unzip \`*.zip\` for Windows)
+          2. Extract the archive: \`tar -xzf kurpod-*.tar.gz\` (or unzip \`*.zip\` for Windows)
           3. Run the server: \`./kurpod_server\` (or \`kurpod_server.exe\` on Windows)
           4. Open your browser to \`http://localhost:3000\`
 
@@ -80,8 +80,10 @@ jobs:
 
           ### 📋 Platform Support
           - **Linux x86_64** (GNU and musl libc)
-          - **macOS** (Intel and Apple Silicon)
-          - **Windows** (x86_64 and ARM64)
+          - **Linux ARM64** (Raspberry Pi and ARM servers)
+          - **macOS Intel** (x86_64)
+          - **macOS Apple Silicon** (M1/M2/M3)
+          - **Windows x86_64** and **Windows ARM64**
           - **Docker** (Multi-arch: linux/amd64, linux/arm64)
 
           ### 🐳 Docker Usage
@@ -96,7 +98,7 @@ jobs:
           docker run -p 3000:3000 ghcr.io/srv1n/kurpod:v${{ steps.get_version.outputs.version }}
           \`\`\`
 
-          ⚠️ **Security Notice**: This software is licensed under AGPLv3. Commercial use requires separate licensing.
+          ⚠️ **License**: This software is licensed under AGPLv3.
           EOF
           else
             # Get previous tag
@@ -111,7 +113,7 @@ jobs:
 
           ### 📥 Download Instructions
           1. Download the appropriate binary for your platform below
-          2. Extract: \`tar -xzf kurpod_server-*.tar.gz\` (or unzip \`*.zip\` for Windows)
+          2. Extract: \`tar -xzf kurpod-*.tar.gz\` (or unzip \`*.zip\` for Windows)
           3. Run: \`./kurpod_server\` (or \`kurpod_server.exe\` on Windows)
 
           ### 🐳 Docker
@@ -151,39 +153,47 @@ jobs:
           # Linux builds
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-22.04
-            name: linux-amd64
+            name: linux-x86_64
+            display_name: "Linux x86_64"
             cross: false
           - target: x86_64-unknown-linux-musl
             os: ubuntu-22.04
-            name: linux-amd64-musl
+            name: linux-x86_64-musl
+            display_name: "Linux x86_64 (musl)"
             cross: false
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-22.04
             name: linux-arm64
+            display_name: "Linux ARM64 (Raspberry Pi)"
             cross: true
           - target: aarch64-unknown-linux-musl
             os: ubuntu-22.04
             name: linux-arm64-musl
+            display_name: "Linux ARM64 (musl)"
             cross: true
           
           # macOS builds
           - target: x86_64-apple-darwin
             os: macos-13
-            name: darwin-amd64
+            name: darwin-intel
+            display_name: "macOS Intel"
             cross: false
           - target: aarch64-apple-darwin
             os: macos-13
-            name: darwin-arm64
+            name: darwin-apple-silicon
+            display_name: "macOS Apple Silicon"
             cross: false
           
           # Windows builds
           - target: x86_64-pc-windows-msvc
             os: windows-2022
-            name: windows-amd64
+            name: windows-x86_64
+            display_name: "Windows x86_64"
             cross: false
           - target: aarch64-pc-windows-msvc
             os: windows-2022
             name: windows-arm64
+            display_name: "Windows ARM64"
             cross: false
 
     steps:
@@ -263,11 +273,11 @@ jobs:
           echo "https://github.com/${{ github.repository }}" >> README.txt
           echo "" >> README.txt
           echo "## License" >> README.txt
-          echo "AGPLv3 - Free for personal use, commercial licensing available" >> README.txt
+          echo "Licensed under AGPLv3" >> README.txt
           
-          7z a "kurpod_server-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.zip" kurpod_server.exe README.txt
-          echo "ASSET_PATH=release-assets/kurpod_server-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.zip" >> $env:GITHUB_ENV
-          echo "ASSET_NAME=kurpod_server-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.zip" >> $env:GITHUB_ENV
+          7z a "kurpod-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.zip" kurpod_server.exe README.txt
+          echo "ASSET_PATH=release-assets/kurpod-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.zip" >> $env:GITHUB_ENV
+          echo "ASSET_NAME=kurpod-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.zip" >> $env:GITHUB_ENV
           echo "CONTENT_TYPE=application/zip" >> $env:GITHUB_ENV
 
       - name: Prepare Unix release asset
@@ -299,23 +309,23 @@ jobs:
           - User manual: https://github.com/${{ github.repository }}/blob/main/docs/USER_MANUAL.md
           
           ## License
-          AGPLv3 - Free for personal use, commercial licensing available
+          Licensed under AGPLv3
           EOF
           
           # Create the archive
-          tar -czf kurpod_server-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.tar.gz kurpod_server README.txt
+          tar -czf kurpod-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.tar.gz kurpod_server README.txt
           
           # Generate checksums
           if command -v sha256sum >/dev/null; then
-            sha256sum kurpod_server-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.tar.gz > kurpod_server-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.tar.gz.sha256
+            sha256sum kurpod-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.tar.gz > kurpod-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.tar.gz.sha256
           elif command -v shasum >/dev/null; then
-            shasum -a 256 kurpod_server-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.tar.gz > kurpod_server-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.tar.gz.sha256
+            shasum -a 256 kurpod-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.tar.gz > kurpod-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.tar.gz.sha256
           fi
           
-          echo "ASSET_PATH=release-assets/kurpod_server-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.tar.gz" >> $GITHUB_ENV
-          echo "ASSET_NAME=kurpod_server-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.tar.gz" >> $GITHUB_ENV
-          echo "CHECKSUM_PATH=release-assets/kurpod_server-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.tar.gz.sha256" >> $GITHUB_ENV
-          echo "CHECKSUM_NAME=kurpod_server-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.tar.gz.sha256" >> $GITHUB_ENV
+          echo "ASSET_PATH=release-assets/kurpod-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.tar.gz" >> $GITHUB_ENV
+          echo "ASSET_NAME=kurpod-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.tar.gz" >> $GITHUB_ENV
+          echo "CHECKSUM_PATH=release-assets/kurpod-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.tar.gz.sha256" >> $GITHUB_ENV
+          echo "CHECKSUM_NAME=kurpod-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.tar.gz.sha256" >> $GITHUB_ENV
           echo "CONTENT_TYPE=application/gzip" >> $GITHUB_ENV
 
       - name: Upload release binary
@@ -385,19 +395,19 @@ jobs:
           case $OS in
             linux)
               case $ARCH in
-                x86_64) PLATFORM="linux-amd64" ;;
+                x86_64) PLATFORM="linux-x86_64" ;;
                 aarch64|arm64) PLATFORM="linux-arm64" ;;
                 *) echo "Unsupported architecture: $ARCH"; exit 1 ;;
               esac
-              ARCHIVE="kurpod_server-v${VERSION}-${PLATFORM}.tar.gz"
+              ARCHIVE="kurpod-v${VERSION}-${PLATFORM}.tar.gz"
               ;;
             darwin)
               case $ARCH in
-                x86_64) PLATFORM="darwin-amd64" ;;
-                arm64) PLATFORM="darwin-arm64" ;;
+                x86_64) PLATFORM="darwin-intel" ;;
+                arm64) PLATFORM="darwin-apple-silicon" ;;
                 *) echo "Unsupported architecture: $ARCH"; exit 1 ;;
               esac
-              ARCHIVE="kurpod_server-v${VERSION}-${PLATFORM}.tar.gz"
+              ARCHIVE="kurpod-v${VERSION}-${PLATFORM}.tar.gz"
               ;;
             *)
               echo "Unsupported OS: $OS"
