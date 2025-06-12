@@ -153,7 +153,7 @@ services:
 
 #### Available Tags
 - `latest` - Latest stable release
-- `v0.1.0-alpha.1` - Specific version
+- `v1.0.0` - Specific version tags
 - `main` - Development builds (not recommended for production)
 
 **Registry**: GitHub Container Registry (GHCR) - https://github.com/srv1n/kurpod/pkgs/container/kurpod
@@ -166,8 +166,8 @@ services:
 curl -sSf https://github.com/srv1n/kurpod/releases/latest/download/install.sh | bash
 
 # Or manual download and extract
-wget https://github.com/srv1n/kurpod/releases/latest/download/kurpod-v0.1.0-linux-x86_64.tar.gz
-tar -xzf kurpod-v0.1.0-linux-x86_64.tar.gz
+wget https://github.com/srv1n/kurpod/releases/latest/download/kurpod-v1.0.0-linux-x86_64.tar.gz
+tar -xzf kurpod-v1.0.0-linux-x86_64.tar.gz
 chmod +x kurpod_server
 ./kurpod_server
 ```

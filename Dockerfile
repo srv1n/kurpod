@@ -2,8 +2,8 @@
 FROM --platform=$BUILDPLATFORM oven/bun:slim AS frontend-builder
 
 WORKDIR /usr/src/app
-COPY frontend/package*.json ./
-RUN bun install
+COPY frontend/package.json frontend/bun.lock ./
+RUN bun install --frozen-lockfile
 
 COPY frontend ./
 RUN bun run build \
@@ -15,7 +15,7 @@ FROM alpine:3.19 AS alpine
 RUN apk add -U --no-cache ca-certificates
 
 # Build stage - using Alpine for musl support
-FROM --platform=$BUILDPLATFORM rust:1.86-alpine AS builder
+FROM --platform=$BUILDPLATFORM rust:1.81-alpine AS builder
 
 # Install build dependencies for musl static linking
 RUN apk add --no-cache \
@@ -43,15 +43,21 @@ RUN case "$TARGETPLATFORM" in \
         *) echo "Unsupported platform: $TARGETPLATFORM" && exit 1 ;; \
     esac
 
-# Configure for static linking
-ENV RUSTFLAGS="-C target-feature=+crt-static"
+# Add the musl target by default for static linking
+RUN rustup target add x86_64-unknown-linux-musl aarch64-unknown-linux-musl
 
-# Build the application with embedded frontend for target architecture (static linking)
+# Check what we have so far
+RUN echo "Target file contents:" && cat /target.txt && \
+    echo "Platform: $TARGETPLATFORM" && \
+    echo "Available targets:" && rustup target list --installed && \
+    echo "Frontend dist contents:" && ls -la frontend/
+
+# Configure for static linking and build
+ENV RUSTFLAGS="-C target-feature=+crt-static"
 RUN export CARGO_TARGET=$(cat /target.txt) && \
-    if [ "$CARGO_TARGET" != "x86_64-unknown-linux-musl" ]; then \
-        rustup target add $CARGO_TARGET; \
-    fi && \
+    echo "Building for target: $CARGO_TARGET" && \
     cargo build --release --target $CARGO_TARGET --bin kurpod_server && \
+    ls -la target/$CARGO_TARGET/release/ && \
     cp target/$CARGO_TARGET/release/kurpod_server /kurpod_server && \
     strip /kurpod_server
 
