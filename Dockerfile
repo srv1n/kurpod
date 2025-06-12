@@ -14,8 +14,8 @@ RUN bun run build \
 FROM alpine:3.19 AS alpine
 RUN apk add -U --no-cache ca-certificates
 
-# Build stage - using Alpine for musl support  
-FROM --platform=$BUILDPLATFORM rust:1.86-alpine AS builder
+# Build stage - using native platform for each architecture
+FROM rust:1.86-alpine AS builder
 
 # Install build dependencies for musl static linking
 RUN apk add --no-cache \
@@ -35,24 +35,24 @@ COPY kurpod_server ./kurpod_server
 # Copy the built frontend from frontend-builder stage - rust-embed will embed this
 COPY --from=frontend-builder /usr/src/app/dist ./frontend/dist
 
-# Set target architecture based on platform for musl
-ARG TARGETPLATFORM
-RUN case "$TARGETPLATFORM" in \
-        "linux/amd64") echo "x86_64-unknown-linux-musl" > /target.txt ;; \
-        "linux/arm64") echo "aarch64-unknown-linux-musl" > /target.txt ;; \
-        *) echo "Unsupported platform: $TARGETPLATFORM" && exit 1 ;; \
+# Detect native architecture and set target
+RUN case "$(uname -m)" in \
+        "x86_64") echo "x86_64-unknown-linux-musl" > /target.txt ;; \
+        "aarch64") echo "aarch64-unknown-linux-musl" > /target.txt ;; \
+        *) echo "Unsupported architecture: $(uname -m)" && exit 1 ;; \
     esac
 
-# Add the musl target by default for static linking
-RUN rustup target add x86_64-unknown-linux-musl aarch64-unknown-linux-musl
+# Add the musl target for the native architecture
+RUN export NATIVE_TARGET=$(cat /target.txt) && \
+    rustup target add $NATIVE_TARGET
 
 # Check what we have so far
 RUN echo "Target file contents:" && cat /target.txt && \
-    echo "Platform: $TARGETPLATFORM" && \
+    echo "Native architecture: $(uname -m)" && \
     echo "Available targets:" && rustup target list --installed && \
     echo "Frontend dist contents:" && ls -la frontend/
 
-# Configure for static linking and build
+# Configure for static linking and build natively
 ENV RUSTFLAGS="-C target-feature=+crt-static"
 RUN export CARGO_TARGET=$(cat /target.txt) && \
     echo "Building for target: $CARGO_TARGET" && \
