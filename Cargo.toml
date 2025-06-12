@@ -35,21 +35,19 @@ log = "0.4.22"
 tempfile = "3"
 
 [profile.release]
-# Speed optimizations
-opt-level = 3            # Maximum optimization level
-codegen-units = 1        # Compile crate as single unit for better optimization
-lto = "fat"              # Full link-time optimization across crates
-panic = "abort"          # Remove panic unwinding code
-incremental = false      # Disable incremental compilation
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
 
-# Size optimizations (secondary priority)
-strip = true             # Strip symbols from binary
-overflow-checks = false  # Disable integer overflow checks
+[profile.release.package.kurpod_server]
+opt-level = "z"  # Optimize for size
 
+# Development profile with optimizations
 [profile.dev]
-# Fast compilation settings for development
-opt-level = 0            # Minimal optimization for faster compilation
-debug = true             # Include debug info
-codegen-units = 256      # Many compilation units for parallel builds
-lto = false              # No link-time optimization
-incremental = true       # Enable incremental compilation for faster rebuilds
+opt-level = 1
+debug = true
+
+[profile.dev.package."*"]
+opt-level = 3  # Optimize dependencies even in dev

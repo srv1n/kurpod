@@ -4,10 +4,13 @@
 #![allow(clippy::useless_format)]
 #![allow(clippy::unwrap_or_default)]
 
+mod auth;
+mod session;
 mod state;
 
-use crate::state::AppState;
-use axum::extract::Extension;
+use crate::{auth::AuthContext, state::AppState};
+use axum::extract::{Extension, ConnectInfo};
+use tower::ServiceBuilder;
 use axum::{
     extract::{DefaultBodyLimit, Path, Query},
     http::{
@@ -25,8 +28,8 @@ use encryption_core::{
     unlock_blob,
 };
 use local_ip_address::local_ip;
-use log::{error, info, warn};
-use mime_guess::from_path;
+use log;
+use mime_guess::{from_path, mime};
 use rand::{rngs::OsRng, RngCore};
 use rust_embed::RustEmbed;
 use serde::{Deserialize, Serialize};
@@ -34,7 +37,6 @@ use std::fs;
 use std::{
     net::SocketAddr,
     path::PathBuf,
-    sync::{Arc, Mutex},
 };
 use tokio::net::TcpListener;
 
@@ -53,9 +55,6 @@ struct Args {
     blob_dir: Option<String>,
 }
 
-// Shared application state
-type SharedState = Arc<Mutex<Option<AppState>>>;
-
 // Server mode for blob handling
 #[derive(Clone, Debug)]
 enum ServerMode {
@@ -63,11 +62,11 @@ enum ServerMode {
     Directory(PathBuf), // Directory containing blobs
 }
 
-// App context that includes the blob mode and path
+// App context that includes the blob mode and application state
 #[derive(Clone)]
 struct AppContext {
     mode: ServerMode,
-    state: SharedState,
+    app_state: AppState,
 }
 
 /// API response
@@ -89,6 +88,14 @@ struct FileList {
 struct FileInfo {
     path: String,
     size: usize,
+}
+
+/// Init response
+#[derive(Serialize)]
+struct InitResponse {
+    token: String,
+    files: Vec<FileInfo>,
+    volume_type: String,
 }
 
 /// Init payload - updated
@@ -134,6 +141,7 @@ struct DownloadParams {
 struct BatchInfo {
     is_final_batch: bool,
     batch_id: String,
+    current_folder: Option<String>,
 }
 
 /// Delete blob payload
@@ -221,7 +229,7 @@ fn get_available_blobs(dir_path: &PathBuf) -> Vec<String> {
 struct Assets;
 
 // Static file handler using embedded assets
-async fn static_handler(Path(path): Path<String>) -> impl IntoResponse {
+async fn static_handler(Path(path): Path<String>) -> Response {
     let path = if path.is_empty() { "index.html" } else { &path };
 
     match Assets::get(path) {
@@ -342,33 +350,47 @@ async fn main() {
         Err(_) => println!("Could not determine local IP address"),
     }
 
-    let state: SharedState = Arc::new(Mutex::new(None));
+    let app_state = AppState::new();
     let app_context = AppContext {
         mode: mode.clone(),
-        state: state.clone(),
+        app_state: app_state.clone(),
     };
 
     let app = axum::Router::new()
+        // Public routes (no authentication required)
         .route("/api/status", get(status_handler))
         .route("/api/init", post(init_handler))
         .route("/api/unlock", post(unlock_handler))
+        .route("/api/info", get(info_handler))
+        // Protected routes (require authentication)
         .route("/api/logout", post(logout_handler))
-        .route("/api/tree", get(tree_handler))
+        .route("/api/session", get(session_status_handler))
+        .route("/api/files", get(files_handler))
+        .route("/api/files", post(upload_handler))
         .route("/api/batch-upload", post(batch_upload_handler))
-        .route("/api/upload", post(upload_handler))
+        .route("/api/files/*filepath", get(file_get_handler))
+        .route("/api/files/*filepath", delete(file_delete_handler))
+        .route("/api/storage/stats", get(storage_stats_handler))
+        .route("/api/storage/compact", post(compact_handler))
+        // Legacy routes updated for session authentication
+        .route("/api/tree", get(tree_handler))
         .route("/api/rename", post(rename_handler))
-        .route("/api/delete", delete(delete_handler))
+        .route("/api/delete", delete(delete_query_handler))
         .route("/api/delete-folder", delete(delete_folder_handler))
-        .route("/api/delete-blob", delete(delete_blob_handler))
-        .route("/api/compact", post(compact_handler))
-        .route("/api/download", get(download_handler))
+        .route("/api/download", get(download_query_handler))
+        .route("/api/compact", post(compact_legacy_handler))
+        // Static file serving
         .route("/*path", get(static_handler))
         .route(
             "/",
             get(|| async { static_handler(Path("index.html".to_string())).await }),
         )
-        .layer(DefaultBodyLimit::disable())
-        .layer(Extension(app_context));
+        .layer(
+            ServiceBuilder::new()
+                .layer(DefaultBodyLimit::disable())
+                .layer(Extension(app_context.clone()))
+                .layer(Extension(app_state.session_manager.clone()))
+        );
 
     let addr = SocketAddr::from(([0, 0, 0, 0], args.port));
     let listener = TcpListener::bind(&addr).await.unwrap();
@@ -377,7 +399,10 @@ async fn main() {
         ServerMode::Directory(dir) => println!("\nDirectory mode: {}", dir.display()),
     }
     println!("Waiting for client connection and authentication...");
-    axum::serve(listener, app).await.unwrap();
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>()
+    ).await.unwrap();
 }
 
 /// Status response
@@ -391,9 +416,7 @@ struct StatusResponse {
     volume_type: Option<String>,
 }
 
-async fn status_handler(Extension(app_context): Extension<AppContext>) -> impl IntoResponse {
-    let guard = app_context.state.lock().unwrap();
-
+async fn status_handler(Extension(app_context): Extension<AppContext>) -> Response {
     // Get available blobs for directory mode
     let (mode_str, blob_path, blob_dir, available_blobs) = match &app_context.mode {
         ServerMode::Single(path) => (
@@ -413,62 +436,61 @@ async fn status_handler(Extension(app_context): Extension<AppContext>) -> impl I
         }
     };
 
-    if let Some(app) = &*guard {
-        let resp: ApiResponse<StatusResponse> = ApiResponse {
-            success: true,
-            data: Some(StatusResponse {
-                status: "ready".to_string(),
-                mode: mode_str,
-                blob_path,
-                blob_dir,
-                available_blobs,
-                volume_type: Some(format!("{:?}", app.volume_type)),
-            }),
-            message: None,
-        };
-        (StatusCode::OK, Json(resp))
-    } else {
-        let resp: ApiResponse<StatusResponse> = ApiResponse {
-            success: true,
-            data: Some(StatusResponse {
-                status: "locked".to_string(),
-                mode: mode_str,
-                blob_path,
-                blob_dir,
-                available_blobs,
-                volume_type: None,
-            }),
-            message: None,
-        };
-        (StatusCode::OK, Json(resp))
-    }
+    let session_count = app_context.app_state.session_manager.session_count();
+    let status = if session_count > 0 { "ready" } else { "locked" };
+
+    let resp: ApiResponse<StatusResponse> = ApiResponse {
+        success: true,
+        data: Some(StatusResponse {
+            status: status.to_string(),
+            mode: mode_str,
+            blob_path,
+            blob_dir,
+            available_blobs,
+            volume_type: None, // Will be provided by session endpoint
+        }),
+        message: None,
+    };
+    (StatusCode::OK, Json(resp)).into_response()
+}
+
+/// Helper to extract client IP from request
+fn extract_client_ip_from_connect_info(connect_info: Option<ConnectInfo<SocketAddr>>) -> Option<String> {
+    connect_info.map(|info| info.0.ip().to_string())
+}
+
+/// Helper to extract user agent from headers
+fn extract_user_agent(headers: &axum::http::HeaderMap) -> Option<String> {
+    headers
+        .get("user-agent")
+        .and_then(|h| h.to_str().ok())
+        .map(|s| s.to_string())
 }
 
 async fn init_handler(
     Extension(app_context): Extension<AppContext>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    headers: axum::http::HeaderMap,
     Json(payload): Json<InitPayload>,
-) -> impl IntoResponse {
-    let mut guard = app_context.state.lock().unwrap();
-    if guard.is_some() {
-        let resp: ApiResponse<FileList> = ApiResponse {
-            success: false,
-            data: None,
-            message: Some("Already initialized".into()),
-        };
-        return (StatusCode::BAD_REQUEST, Json(resp));
-    }
+) -> Response {
+    // Extract client info
+    let client_ip = Some(addr.ip().to_string());
+    let user_agent = extract_user_agent(&headers);
+    
+    // Allow multiple sessions to access the same blob - this is important for privacy
+    // Each browser session should be able to independently unlock the blob
 
     // Get blob path based on server mode
     let blob_path: PathBuf = match &app_context.mode {
         ServerMode::Single(path) => {
             // In single mode, use the configured path, ignore payload blob_name
             if payload.blob_name.is_some() {
-                let resp: ApiResponse<FileList> = ApiResponse {
+                let resp: ApiResponse<String> = ApiResponse {
                     success: false,
                     data: None,
                     message: Some("Cannot specify blob_name in single-blob mode".into()),
                 };
-                return (StatusCode::BAD_REQUEST, Json(resp));
+                return (StatusCode::BAD_REQUEST, Json(resp)).into_response();
             }
             path.clone()
         }
@@ -477,32 +499,32 @@ async fn init_handler(
             match payload.blob_name {
                 Some(name) => {
                     if name.is_empty() {
-                        let resp: ApiResponse<FileList> = ApiResponse {
+                        let resp: ApiResponse<String> = ApiResponse {
                             success: false,
                             data: None,
                             message: Some("blob_name cannot be empty".into()),
                         };
-                        return (StatusCode::BAD_REQUEST, Json(resp));
+                        return (StatusCode::BAD_REQUEST, Json(resp)).into_response();
                     }
                     let blob_path = dir.join(&name);
                     // Check if file already exists
                     if blob_path.exists() {
-                        let resp: ApiResponse<FileList> = ApiResponse {
+                        let resp: ApiResponse<String> = ApiResponse {
                             success: false,
                             data: None,
                             message: Some(format!("Blob file {} already exists", name)),
                         };
-                        return (StatusCode::BAD_REQUEST, Json(resp));
+                        return (StatusCode::BAD_REQUEST, Json(resp)).into_response();
                     }
                     blob_path
                 }
                 None => {
-                    let resp: ApiResponse<FileList> = ApiResponse {
+                    let resp: ApiResponse<String> = ApiResponse {
                         success: false,
                         data: None,
                         message: Some("blob_name required in directory mode".into()),
                     };
-                    return (StatusCode::BAD_REQUEST, Json(resp));
+                    return (StatusCode::BAD_REQUEST, Json(resp)).into_response();
                 }
             }
         }
@@ -518,12 +540,12 @@ async fn init_handler(
         Some(ph) if !ph.trim().is_empty() => {
             // User provided a hidden password
             if ph == password_s {
-                let resp: ApiResponse<FileList> = ApiResponse {
+                let resp: ApiResponse<String> = ApiResponse {
                     success: false,
                     data: None,
                     message: Some("Standard and hidden passwords must be different".into()),
                 };
-                return (StatusCode::BAD_REQUEST, Json(resp));
+                return (StatusCode::BAD_REQUEST, Json(resp)).into_response();
             }
             println!("Using provided password for hidden volume.");
             password_h_final = ph;
@@ -546,105 +568,97 @@ async fn init_handler(
             // Unlock immediately using the standard password to get initial state
             match unlock_blob(&blob_path, &password_s) {
                 Ok((volume_type, key, metadata)) => {
-                    *guard = Some(AppState {
-                        password: password_s, // Store the standard password for session validation
-                        blob_path: blob_path.clone(),
-                        metadata,
-                        derived_key: key,
+                    // Create session instead of storing in global state
+                    match app_context.app_state.session_manager.create_session(
+                        key,
+                        blob_path.clone(),
+                        metadata.clone(),
                         volume_type,
-                    });
-                    // Success Case: Return file list (empty initially)
-                    let resp: ApiResponse<FileList> = ApiResponse {
-                        success: true,
-                        data: Some(FileList { files: vec![] }),
-                        message: Some("Blob initialized and unlocked (standard volume)".into()),
-                    };
-                    (StatusCode::OK, Json(resp))
+                        client_ip,
+                        user_agent,
+                    ) {
+                        Ok(token) => {
+                            let files = metadata
+                                .iter()
+                                .map(|(path, meta)| FileInfo {
+                                    path: path.clone(),
+                                    size: meta.size as usize,
+                                })
+                                .collect();
+                            
+                            let resp: ApiResponse<InitResponse> = ApiResponse {
+                                success: true,
+                                data: Some(InitResponse {
+                                    token,
+                                    files,
+                                    volume_type: format!("{:?}", volume_type),
+                                }),
+                                message: Some("Blob initialized and session created".into()),
+                            };
+                            (StatusCode::OK, Json(resp)).into_response()
+                        }
+                        Err(e) => {
+                            let resp: ApiResponse<String> = ApiResponse {
+                                success: false,
+                                data: None,
+                                message: Some(format!("Failed to create session: {}", e)),
+                            };
+                            (StatusCode::INTERNAL_SERVER_ERROR, Json(resp)).into_response()
+                        }
+                    }
                 }
                 Err(e) => {
                     // Error Case 3: Failed unlock after init
-                    let resp: ApiResponse<FileList> = ApiResponse {
+                    let resp: ApiResponse<String> = ApiResponse {
                         success: false,
                         data: None,
                         message: Some(format!("Failed to unlock after init: {}", e)),
                     };
-                    (StatusCode::INTERNAL_SERVER_ERROR, Json(resp))
+                    (StatusCode::INTERNAL_SERVER_ERROR, Json(resp)).into_response()
                 }
             }
         }
         Err(e) => {
             // Error Case 4: Failed init_blob
-            let resp: ApiResponse<FileList> = ApiResponse {
+            let resp: ApiResponse<String> = ApiResponse {
                 success: false,
                 data: None,
                 message: Some(format!("Init error: {}", e)),
             };
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(resp))
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(resp)).into_response()
         }
     }
 }
 
+/// Unlock response
+#[derive(Serialize)]
+struct UnlockResponse {
+    token: String,
+    files: Vec<FileInfo>,
+    volume_type: String,
+}
+
 async fn unlock_handler(
     Extension(app_context): Extension<AppContext>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    headers: axum::http::HeaderMap,
     Json(payload): Json<UnlockPayload>,
-) -> impl IntoResponse {
-    let mut guard = app_context.state.lock().unwrap();
-
-    // --- Check if ALREADY unlocked ---
-    if let Some(app) = guard.as_ref() {
-        info!(
-            "Unlock handler: Already unlocked with {:?}. Comparing passwords.",
-            app.volume_type
-        );
-        // Already unlocked, check if the password matches THE STORED one
-        if app.password == payload.password {
-            // Check against the password used to unlock this session
-            info!("Unlock handler: Provided password matches stored password for {:?}. Session confirmed.", app.volume_type);
-            // Passwords match, return current state
-            let files = app
-                .metadata
-                .iter()
-                .map(|(path, meta)| FileInfo {
-                    path: path.clone(),
-                    size: meta.size as usize,
-                })
-                .collect();
-            let resp: ApiResponse<FileList> = ApiResponse {
-                success: true,
-                data: Some(FileList { files }),
-                message: Some(format!(
-                    "Already unlocked ({:?}), session confirmed",
-                    app.volume_type
-                )),
-            };
-            return (StatusCode::OK, Json(resp));
-        } else {
-            // Passwords don't match THE STORED one for the current session
-            warn!("Unlock handler: Provided password does NOT match stored password for {:?}. Denying access.", app.volume_type);
-            // We will NOT attempt to switch volumes here yet. First implement logout.
-            let resp: ApiResponse<FileList> = ApiResponse {
-                success: false,
-                data: None,
-                message: Some("Incorrect password".into()),
-            };
-            return (StatusCode::UNAUTHORIZED, Json(resp)); // Returns 401
-        }
-    }
-
-    // --- Not unlocked, proceed with unlocking ---
-    info!("Unlock handler: State is None, proceeding to call unlock_blob.");
-
+) -> Response {
+    // Extract client info
+    let client_ip = Some(addr.ip().to_string());
+    let user_agent = extract_user_agent(&headers);
+    
     // Get blob path based on server mode
     let blob_path: PathBuf = match &app_context.mode {
         ServerMode::Single(path) => {
             // In single mode, use the configured path, ignore payload blob_name
             if payload.blob_name.is_some() {
-                let resp: ApiResponse<FileList> = ApiResponse {
+                let resp: ApiResponse<String> = ApiResponse {
                     success: false,
                     data: None,
                     message: Some("Cannot specify blob_name in single-blob mode".into()),
                 };
-                return (StatusCode::BAD_REQUEST, Json(resp));
+                return (StatusCode::BAD_REQUEST, Json(resp)).into_response();
             }
             path.clone()
         }
@@ -653,32 +667,32 @@ async fn unlock_handler(
             match payload.blob_name {
                 Some(name) => {
                     if name.is_empty() {
-                        let resp: ApiResponse<FileList> = ApiResponse {
+                        let resp: ApiResponse<String> = ApiResponse {
                             success: false,
                             data: None,
                             message: Some("blob_name cannot be empty".into()),
                         };
-                        return (StatusCode::BAD_REQUEST, Json(resp));
+                        return (StatusCode::BAD_REQUEST, Json(resp)).into_response();
                     }
                     let blob_path = dir.join(&name);
                     // Check if file exists
                     if !blob_path.exists() {
-                        let resp: ApiResponse<FileList> = ApiResponse {
+                        let resp: ApiResponse<String> = ApiResponse {
                             success: false,
                             data: None,
                             message: Some(format!("Blob file {} not found", name)),
                         };
-                        return (StatusCode::NOT_FOUND, Json(resp));
+                        return (StatusCode::NOT_FOUND, Json(resp)).into_response();
                     }
                     blob_path
                 }
                 None => {
-                    let resp: ApiResponse<FileList> = ApiResponse {
+                    let resp: ApiResponse<String> = ApiResponse {
                         success: false,
                         data: None,
                         message: Some("blob_name required in directory mode".into()),
                     };
-                    return (StatusCode::BAD_REQUEST, Json(resp));
+                    return (StatusCode::BAD_REQUEST, Json(resp)).into_response();
                 }
             }
         }
@@ -689,76 +703,137 @@ async fn unlock_handler(
     // Unlock blob and get metadata
     match unlock_blob(&blob_path, &payload.password) {
         Ok((volume_type, key, metadata)) => {
-            // Destructure volume_type, key, and metadata
-            info!(
-                "Unlock handler: unlock_blob succeeded for {:?}. Storing state.",
-                volume_type
-            );
-            // Convert metadata to file list
-            let files = metadata
-                .iter()
-                .map(|(path, meta)| FileInfo {
-                    path: path.clone(),
-                    size: meta.size as usize,
-                })
-                .collect();
-
-            *guard = Some(AppState {
-                password: payload.password.clone(), // Store the password that successfully unlocked THIS volume
-                blob_path: blob_path.clone(),
-                metadata,
-                derived_key: key,
-                volume_type, // Store the volume type
-            });
-
-            let resp: ApiResponse<FileList> = ApiResponse {
-                success: true,
-                data: Some(FileList { files }),
-                message: Some(format!("Unlocked {:?} volume", volume_type)),
-            };
-            return (StatusCode::OK, Json(resp));
+            // Create session
+            match app_context.app_state.session_manager.create_session(
+                key,
+                blob_path.clone(),
+                metadata.clone(),
+                volume_type,
+                client_ip,
+                user_agent,
+            ) {
+                Ok(token) => {
+                    let files = metadata
+                        .iter()
+                        .map(|(path, meta)| FileInfo {
+                            path: path.clone(),
+                            size: meta.size as usize,
+                        })
+                        .collect();
+                    
+                    let resp: ApiResponse<UnlockResponse> = ApiResponse {
+                        success: true,
+                        data: Some(UnlockResponse {
+                            token,
+                            files,
+                            volume_type: format!("{:?}", volume_type),
+                        }),
+                        message: Some(format!("Unlocked {:?} volume", volume_type)),
+                    };
+                    (StatusCode::OK, Json(resp)).into_response()
+                }
+                Err(e) => {
+                    let resp: ApiResponse<String> = ApiResponse {
+                        success: false,
+                        data: None,
+                        message: Some(format!("Failed to create session: {}", e)),
+                    };
+                    (StatusCode::INTERNAL_SERVER_ERROR, Json(resp)).into_response()
+                }
+            }
         }
         Err(e) => {
-            // unlock_blob failed for BOTH volumes
-            error!("Unlock handler: unlock_blob failed: {}. Responding 401.", e);
-            let resp: ApiResponse<FileList> = ApiResponse {
+            log::error!("Unlock failed: {}", e);
+            let resp: ApiResponse<String> = ApiResponse {
                 success: false,
                 data: None,
                 message: Some("Invalid password or corrupt blob".into()),
             };
-            return (StatusCode::UNAUTHORIZED, Json(resp));
+            (StatusCode::UNAUTHORIZED, Json(resp)).into_response()
         }
     }
 }
 
-async fn logout_handler(Extension(app_context): Extension<AppContext>) -> impl IntoResponse {
-    info!("Logout request received.");
-    let mut guard = app_context.state.lock().unwrap();
-    if guard.is_some() {
-        *guard = None; // Clear the state
-        info!("Server state cleared successfully.");
-        let resp: ApiResponse<()> = ApiResponse {
+async fn logout_handler(auth: AuthContext, Extension(app_context): Extension<AppContext>) -> Response {
+    log::info!("Logout request received for session: {}", auth.session_id);
+    
+    if app_context.app_state.session_manager.remove_session(&auth.session_id) {
+        log::info!("Session removed successfully: {}", auth.session_id);
+        let resp: ApiResponse<String> = ApiResponse {
             success: true,
             data: None,
             message: Some("Logged out successfully".into()),
         };
-        (StatusCode::OK, Json(resp))
+        (StatusCode::OK, Json(resp)).into_response()
     } else {
-        warn!("Logout attempt when already logged out.");
+        log::warn!("Session not found during logout: {}", auth.session_id);
         // Still return success, as the desired state (logged out) is achieved
-        let resp: ApiResponse<()> = ApiResponse {
+        let resp: ApiResponse<String> = ApiResponse {
             success: true,
             data: None,
-            message: Some("Already logged out".into()),
+            message: Some("Session already removed".into()),
         };
-        (StatusCode::OK, Json(resp))
+        (StatusCode::OK, Json(resp)).into_response()
     }
 }
 
-async fn tree_handler(Extension(app_context): Extension<AppContext>) -> impl IntoResponse {
-    let guard = app_context.state.lock().unwrap();
-    if let Some(app) = &*guard {
-        let files = app
+/// Session status response
+#[derive(Serialize)]
+struct SessionStatusResponse {
+    session_id: String,
+    volume_type: String,
+    blob_path: String,
+    file_count: usize,
+    active_since: String,
+}
+
+async fn session_status_handler(auth: AuthContext, Extension(app_context): Extension<AppContext>) -> Response {
+    if let Some(session) = app_context.app_state.session_manager.get_session(&auth.session_id) {
+        let resp: ApiResponse<SessionStatusResponse> = ApiResponse {
+            success: true,
+            data: Some(SessionStatusResponse {
+                session_id: auth.session_id,
+                volume_type: format!("{:?}", session.volume_type),
+                blob_path: session.blob_path.to_string_lossy().to_string(),
+                file_count: session.metadata.len(),
+                active_since: format!("{:?}", session.created_at),
+            }),
+            message: None,
+        };
+        (StatusCode::OK, Json(resp)).into_response()
+    } else {
+        let resp: ApiResponse<String> = ApiResponse {
+            success: false,
+            data: None,
+            message: Some("Session not found".into()),
+        };
+        (StatusCode::NOT_FOUND, Json(resp)).into_response()
+    }
+}
+
+async fn info_handler() -> Response {
+    #[derive(Serialize)]
+    struct InfoResponse {
+        name: String,
+        version: String,
+        description: String,
+    }
+
+    let resp: ApiResponse<InfoResponse> = ApiResponse {
+        success: true,
+        data: Some(InfoResponse {
+            name: "KURPOD Server".to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            description: "Encrypted file storage server with session-based authentication".to_string(),
+        }),
+        message: None,
+    };
+    (StatusCode::OK, Json(resp)).into_response()
+}
+
+async fn files_handler(auth: AuthContext, Extension(app_context): Extension<AppContext>) -> Response {
+    if let Some(session) = app_context.app_state.session_manager.get_session(&auth.session_id) {
+        let files = session
             .metadata
             .iter()
             .map(|(path, meta)| FileInfo {
@@ -771,564 +846,973 @@ async fn tree_handler(Extension(app_context): Extension<AppContext>) -> impl Int
             data: Some(FileList { files }),
             message: None,
         };
-        return (StatusCode::OK, Json(resp));
+        (StatusCode::OK, Json(resp)).into_response()
     } else {
-        let resp: ApiResponse<FileList> = ApiResponse {
+        let resp: ApiResponse<String> = ApiResponse {
             success: false,
             data: None,
-            message: Some("Locked".into()),
+            message: Some("Session not found".into()),
         };
-        return (StatusCode::FORBIDDEN, Json(resp));
+        (StatusCode::NOT_FOUND, Json(resp)).into_response()
     }
 }
 
+async fn tree_handler(auth: AuthContext, Extension(app_context): Extension<AppContext>) -> Response {
+    // Legacy handler that redirects to files_handler
+    files_handler(auth, Extension(app_context)).await
+}
+
+// Unified file GET handler that supports download, stream, and thumbnail operations
+async fn file_get_handler(
+    auth: AuthContext,
+    Extension(app_context): Extension<AppContext>,
+    Path(filepath): Path<String>,
+    headers: axum::http::HeaderMap,
+) -> Response {
+    // Parse the operation type from the filepath
+    let (file_id, operation) = if filepath.ends_with("/stream") {
+        (filepath.trim_end_matches("/stream").to_string(), "stream")
+    } else if filepath.ends_with("/thumbnail") {
+        (filepath.trim_end_matches("/thumbnail").to_string(), "thumbnail")
+    } else {
+        (filepath, "download")
+    };
+    
+    match operation {
+        "stream" => stream_handler_impl(auth, Extension(app_context), file_id, headers).await,
+        "thumbnail" => thumbnail_handler_impl(auth, Extension(app_context), file_id).await,
+        _ => download_handler_impl(auth, Extension(app_context), file_id).await,
+    }
+}
+
+// Stream handler implementation for video/audio with HTTP range support
+async fn stream_handler_impl(
+    auth: AuthContext,
+    app_context: Extension<AppContext>,
+    file_id: String,
+    headers: axum::http::HeaderMap,
+) -> Response {
+    if let Some(session) = app_context.app_state.session_manager.get_session(&auth.session_id) {
+        match session.metadata.get(&file_id) {
+            Some(metadata) => {
+                match get_file(&session.blob_path, &auth.derived_key, metadata) {
+                    Ok(content) => {
+                        let content_length = content.len();
+                        let mime = from_path(&file_id).first_or_octet_stream();
+                        
+                        // Check for Range header
+                        if let Some(range_header) = headers.get("range") {
+                            if let Ok(range_str) = range_header.to_str() {
+                                if range_str.starts_with("bytes=") {
+                                    let range_part = &range_str[6..];
+                                    
+                                    // Parse range (e.g., "0-1023" or "1024-" or "-1024")
+                                    if let Some((start_str, end_str)) = range_part.split_once('-') {
+                                        let start = if start_str.is_empty() {
+                                            // Suffix range like "-1024"
+                                            if let Ok(suffix_len) = end_str.parse::<usize>() {
+                                                content_length.saturating_sub(suffix_len)
+                                            } else {
+                                                0
+                                            }
+                                        } else {
+                                            start_str.parse().unwrap_or(0)
+                                        };
+                                        
+                                        let end = if end_str.is_empty() {
+                                            content_length - 1
+                                        } else if start_str.is_empty() {
+                                            // Suffix range, end is already calculated above
+                                            content_length - 1
+                                        } else {
+                                            end_str.parse().unwrap_or(content_length - 1).min(content_length - 1)
+                                        };
+                                        
+                                        if start < content_length && start <= end {
+                                            let chunk = &content[start..=end];
+                                            return Response::builder()
+                                                .status(StatusCode::PARTIAL_CONTENT)
+                                                .header(CONTENT_TYPE, mime.as_ref())
+                                                .header("Content-Range", format!("bytes {}-{}/{}", start, end, content_length))
+                                                .header("Content-Length", chunk.len().to_string())
+                                                .header("Accept-Ranges", "bytes")
+                                                .body(axum::body::Body::from(chunk.to_vec()))
+                                                .unwrap()
+                                                .into_response();
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        
+                        // Return full content if no valid range requested
+                        Response::builder()
+                            .status(StatusCode::OK)
+                            .header(CONTENT_TYPE, mime.as_ref())
+                            .header("Content-Length", content_length.to_string())
+                            .header("Accept-Ranges", "bytes")
+                            .header(
+                                CONTENT_DISPOSITION,
+                                format!("inline; filename=\"{}\"", file_id),
+                            )
+                            .body(axum::body::Body::from(content))
+                            .unwrap()
+                            .into_response()
+                    }
+                    Err(e) => {
+                        let resp: ApiResponse<()> = ApiResponse {
+                            success: false,
+                            data: None,
+                            message: Some(format!("Error reading file: {}", e)),
+                        };
+                        (StatusCode::INTERNAL_SERVER_ERROR, Json(resp)).into_response()
+                    }
+                }
+            }
+            None => {
+                let resp: ApiResponse<()> = ApiResponse {
+                    success: false,
+                    data: None,
+                    message: Some("File not found".into()),
+                };
+                (StatusCode::NOT_FOUND, Json(resp)).into_response()
+            }
+        }
+    } else {
+        let resp: ApiResponse<()> = ApiResponse {
+            success: false,
+            data: None,
+            message: Some("Session not found".into()),
+        };
+        (StatusCode::NOT_FOUND, Json(resp)).into_response()
+    }
+}
+
+async fn thumbnail_handler_impl(
+    auth: AuthContext,
+    app_context: Extension<AppContext>,
+    file_id: String,
+) -> Response {
+    if let Some(session) = app_context.app_state.session_manager.get_session(&auth.session_id) {
+        match session.metadata.get(&file_id) {
+            Some(metadata) => {
+                // Check if file is an image type that we can thumbnail
+                let mime_guess = from_path(&file_id);
+                let is_image = mime_guess.first_or_octet_stream().type_() == mime::IMAGE;
+                
+                if !is_image {
+                    let resp: ApiResponse<()> = ApiResponse {
+                        success: false,
+                        data: None,
+                        message: Some("Thumbnails only supported for images".into()),
+                    };
+                    return (StatusCode::BAD_REQUEST, Json(resp)).into_response();
+                }
+                
+                match get_file(&session.blob_path, &auth.derived_key, metadata) {
+                    Ok(content) => {
+                        // For now, return the original image as thumbnail
+                        // In a full implementation, you'd use an image processing library
+                        // like `image` crate to resize the image
+                        
+                        // Simple size check - if image is small, return as-is
+                        if content.len() < 100_000 { // Less than 100KB
+                            Response::builder()
+                                .status(StatusCode::OK)
+                                .header(CONTENT_TYPE, mime_guess.first_or_octet_stream().as_ref())
+                                .header("Cache-Control", "public, max-age=3600")
+                                .body(axum::body::Body::from(content))
+                                .unwrap()
+                                .into_response()
+                        } else {
+                            // For larger images, we'd normally resize here
+                            // For now, return the original image (thumbnail generation would require image processing)
+                            Response::builder()
+                                .status(StatusCode::OK)
+                                .header(CONTENT_TYPE, mime_guess.first_or_octet_stream().as_ref())
+                                .header("Cache-Control", "public, max-age=3600")
+                                .body(axum::body::Body::from(content))
+                                .unwrap()
+                                .into_response()
+                        }
+                    }
+                    Err(e) => {
+                        let resp: ApiResponse<()> = ApiResponse {
+                            success: false,
+                            data: None,
+                            message: Some(format!("Error reading file: {}", e)),
+                        };
+                        (StatusCode::INTERNAL_SERVER_ERROR, Json(resp)).into_response()
+                    }
+                }
+            }
+            None => {
+                let resp: ApiResponse<()> = ApiResponse {
+                    success: false,
+                    data: None,
+                    message: Some("File not found".into()),
+                };
+                (StatusCode::NOT_FOUND, Json(resp)).into_response()
+            }
+        }
+    } else {
+        let resp: ApiResponse<()> = ApiResponse {
+            success: false,
+            data: None,
+            message: Some("Session not found".into()),
+        };
+        (StatusCode::NOT_FOUND, Json(resp)).into_response()
+    }
+}
+
+/// Storage stats response
+#[derive(Serialize)]
+struct StorageStatsResponse {
+    total_files: usize,
+    total_size: u64,
+    blob_file_size: u64,
+    volume_type: String,
+    blob_path: String,
+}
+
+async fn storage_stats_handler(
+    auth: AuthContext,
+    Extension(app_context): Extension<AppContext>,
+) -> Response {
+    if let Some(session) = app_context.app_state.session_manager.get_session(&auth.session_id) {
+        // Calculate total size of all files in metadata
+        let total_size: u64 = session.metadata.values().map(|meta| meta.size).sum();
+        
+        // Get blob file size from filesystem
+        let blob_file_size = match fs::metadata(&session.blob_path) {
+            Ok(metadata) => metadata.len(),
+            Err(_) => 0,
+        };
+        
+        let stats = StorageStatsResponse {
+            total_files: session.metadata.len(),
+            total_size,
+            blob_file_size,
+            volume_type: format!("{:?}", session.volume_type),
+            blob_path: session.blob_path.to_string_lossy().to_string(),
+        };
+        
+        let resp: ApiResponse<StorageStatsResponse> = ApiResponse {
+            success: true,
+            data: Some(stats),
+            message: None,
+        };
+        (StatusCode::OK, Json(resp)).into_response()
+    } else {
+        let resp: ApiResponse<()> = ApiResponse {
+            success: false,
+            data: None,
+            message: Some("Session not found".into()),
+        };
+        (StatusCode::NOT_FOUND, Json(resp)).into_response()
+    }
+}
+
+// Legacy handlers updated to use session authentication
 async fn rename_handler(
+    auth: AuthContext,
     Extension(app_context): Extension<AppContext>,
     Json(payload): Json<RenamePayload>,
-) -> impl IntoResponse {
-    let mut guard = app_context.state.lock().unwrap();
-    if guard.is_none() {
+) -> Response {
+    if let Some(session) = app_context.app_state.session_manager.get_session(&auth.session_id) {
+        // Note: For now, we'll work around the mutable session issue
+        // In production, session metadata should be updated through the session manager
+        let mut metadata = session.metadata.clone();
+        match rename_file(
+            &session.blob_path,
+            session.volume_type,
+            &auth.derived_key,
+            &mut metadata,
+            &payload.old_path,
+            &payload.new_path,
+        ) {
+            Ok(true) => {
+                // Update session metadata after successful rename
+                log::info!("Updating session metadata after renaming file: {} -> {}", payload.old_path, payload.new_path);
+                app_context.app_state.session_manager.update_session_metadata(&auth.session_id, metadata);
+                let resp: ApiResponse<()> = ApiResponse {
+                    success: true,
+                    data: None,
+                    message: None,
+                };
+                (StatusCode::OK, Json(resp)).into_response()
+            }
+            Ok(false) => {
+                let resp: ApiResponse<()> = ApiResponse {
+                    success: false,
+                    data: None,
+                    message: Some("File not found".into()),
+                };
+                (StatusCode::NOT_FOUND, Json(resp)).into_response()
+            }
+            Err(e) => {
+                let resp: ApiResponse<()> = ApiResponse {
+                    success: false,
+                    data: None,
+                    message: Some(format!("Rename error: {}", e)),
+                };
+                (StatusCode::INTERNAL_SERVER_ERROR, Json(resp)).into_response()
+            }
+        }
+    } else {
         let resp: ApiResponse<()> = ApiResponse {
             success: false,
             data: None,
-            message: Some("Locked".into()),
+            message: Some("Session not found".into()),
         };
-        return (StatusCode::FORBIDDEN, Json(resp));
-    }
-    let app = guard.as_mut().unwrap();
-
-    // Pass volume_type to rename_file
-    match rename_file(
-        &app.blob_path,
-        app.volume_type,
-        &app.derived_key,
-        &mut app.metadata,
-        &payload.old_path,
-        &payload.new_path,
-    ) {
-        Ok(true) => {
-            let resp: ApiResponse<()> = ApiResponse {
-                success: true,
-                data: None,
-                message: None,
-            };
-            return (StatusCode::OK, Json(resp));
-        }
-        Ok(false) => {
-            let resp: ApiResponse<()> = ApiResponse {
-                success: false,
-                data: None,
-                message: Some("File not found".into()),
-            };
-            return (StatusCode::NOT_FOUND, Json(resp));
-        }
-        Err(e) => {
-            let resp: ApiResponse<()> = ApiResponse {
-                success: false,
-                data: None,
-                message: Some(format!("Rename error: {}", e)),
-            };
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(resp));
-        }
+        (StatusCode::NOT_FOUND, Json(resp)).into_response()
     }
 }
 
-async fn delete_handler(
+// Session-based delete handler using query params (legacy route)
+async fn delete_query_handler(
+    auth: AuthContext,
     Extension(app_context): Extension<AppContext>,
     Query(params): Query<DeleteParams>,
-) -> impl IntoResponse {
-    let mut guard = app_context.state.lock().unwrap();
-    if guard.is_none() {
+) -> Response {
+    if let Some(session) = app_context.app_state.session_manager.get_session(&auth.session_id) {
+        let mut metadata = session.metadata.clone();
+        match remove_file(
+            &session.blob_path,
+            session.volume_type,
+            &auth.derived_key,
+            &mut metadata,
+            &params.path,
+        ) {
+            Ok(true) => {
+                // Update session metadata after successful deletion
+                log::info!("Updating session metadata after deleting file (legacy): {}", params.path);
+                app_context.app_state.session_manager.update_session_metadata(&auth.session_id, metadata);
+                let resp: ApiResponse<()> = ApiResponse {
+                    success: true,
+                    data: None,
+                    message: None,
+                };
+                (StatusCode::OK, Json(resp)).into_response()
+            }
+            Ok(false) => {
+                let resp: ApiResponse<()> = ApiResponse {
+                    success: false,
+                    data: None,
+                    message: Some("File not found".into()),
+                };
+                (StatusCode::NOT_FOUND, Json(resp)).into_response()
+            }
+            Err(e) => {
+                let resp: ApiResponse<()> = ApiResponse {
+                    success: false,
+                    data: None,
+                    message: Some(format!("Delete error: {}", e)),
+                };
+                (StatusCode::INTERNAL_SERVER_ERROR, Json(resp)).into_response()
+            }
+        }
+    } else {
         let resp: ApiResponse<()> = ApiResponse {
             success: false,
             data: None,
-            message: Some("Locked".into()),
+            message: Some("Session not found".into()),
         };
-        return (StatusCode::FORBIDDEN, Json(resp));
+        (StatusCode::NOT_FOUND, Json(resp)).into_response()
     }
-    let app = guard.as_mut().unwrap();
+}
 
-    // Pass volume_type to remove_file
-    match remove_file(
-        &app.blob_path,
-        app.volume_type,
-        &app.derived_key,
-        &mut app.metadata,
-        &params.path,
-    ) {
-        Ok(true) => {
-            let resp: ApiResponse<()> = ApiResponse {
-                success: true,
-                data: None,
-                message: None,
-            };
-            return (StatusCode::OK, Json(resp));
+// Unified file DELETE handler
+async fn file_delete_handler(
+    auth: AuthContext,
+    Extension(app_context): Extension<AppContext>,
+    Path(filepath): Path<String>,
+) -> Response {
+    // Remove any operation suffix from filepath
+    let file_id = if filepath.ends_with("/stream") {
+        filepath.trim_end_matches("/stream").to_string()
+    } else if filepath.ends_with("/thumbnail") {
+        filepath.trim_end_matches("/thumbnail").to_string()
+    } else {
+        filepath
+    };
+    
+    delete_handler_impl(auth, Extension(app_context), file_id).await
+}
+
+// Delete handler implementation
+async fn delete_handler_impl(
+    auth: AuthContext,
+    app_context: Extension<AppContext>,
+    file_id: String,
+) -> Response {
+    if let Some(session) = app_context.app_state.session_manager.get_session(&auth.session_id) {
+        let mut metadata = session.metadata.clone();
+        match remove_file(
+            &session.blob_path,
+            session.volume_type,
+            &auth.derived_key,
+            &mut metadata,
+            &file_id,
+        ) {
+            Ok(true) => {
+                // Update session metadata after successful deletion
+                log::info!("Updating session metadata after deleting file: {}", file_id);
+                app_context.app_state.session_manager.update_session_metadata(&auth.session_id, metadata);
+                let resp: ApiResponse<()> = ApiResponse {
+                    success: true,
+                    data: None,
+                    message: None,
+                };
+                (StatusCode::OK, Json(resp)).into_response()
+            }
+            Ok(false) => {
+                let resp: ApiResponse<()> = ApiResponse {
+                    success: false,
+                    data: None,
+                    message: Some("File not found".into()),
+                };
+                (StatusCode::NOT_FOUND, Json(resp)).into_response()
+            }
+            Err(e) => {
+                let resp: ApiResponse<()> = ApiResponse {
+                    success: false,
+                    data: None,
+                    message: Some(format!("Delete error: {}", e)),
+                };
+                (StatusCode::INTERNAL_SERVER_ERROR, Json(resp)).into_response()
+            }
         }
-        Ok(false) => {
-            let resp: ApiResponse<()> = ApiResponse {
-                success: false,
-                data: None,
-                message: Some("File not found".into()),
-            };
-            return (StatusCode::NOT_FOUND, Json(resp));
-        }
-        Err(e) => {
-            let resp: ApiResponse<()> = ApiResponse {
-                success: false,
-                data: None,
-                message: Some(format!("Delete error: {}", e)),
-            };
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(resp));
-        }
+    } else {
+        let resp: ApiResponse<()> = ApiResponse {
+            success: false,
+            data: None,
+            message: Some("Session not found".into()),
+        };
+        (StatusCode::NOT_FOUND, Json(resp)).into_response()
     }
 }
 
 async fn delete_folder_handler(
+    auth: AuthContext,
     Extension(app_context): Extension<AppContext>,
     Query(params): Query<DeleteParams>,
-) -> impl IntoResponse {
-    let mut guard = app_context.state.lock().unwrap();
-    if guard.is_none() {
+) -> Response {
+    if let Some(session) = app_context.app_state.session_manager.get_session(&auth.session_id) {
+        let mut metadata = session.metadata.clone();
+        match remove_folder(
+            &session.blob_path,
+            session.volume_type,
+            &auth.derived_key,
+            &mut metadata,
+            &params.path,
+        ) {
+            Ok(true) => {
+                // Update session metadata after successful folder deletion
+                log::info!("Updating session metadata after deleting folder: {}", params.path);
+                app_context.app_state.session_manager.update_session_metadata(&auth.session_id, metadata);
+                let resp: ApiResponse<()> = ApiResponse {
+                    success: true,
+                    data: None,
+                    message: None,
+                };
+                (StatusCode::OK, Json(resp)).into_response()
+            }
+            Ok(false) => {
+                let resp: ApiResponse<()> = ApiResponse {
+                    success: false,
+                    data: None,
+                    message: Some("Folder not found".into()),
+                };
+                (StatusCode::NOT_FOUND, Json(resp)).into_response()
+            }
+            Err(e) => {
+                let resp: ApiResponse<()> = ApiResponse {
+                    success: false,
+                    data: None,
+                    message: Some(format!("Delete error: {}", e)),
+                };
+                (StatusCode::INTERNAL_SERVER_ERROR, Json(resp)).into_response()
+            }
+        }
+    } else {
         let resp: ApiResponse<()> = ApiResponse {
             success: false,
             data: None,
-            message: Some("Locked".into()),
+            message: Some("Session not found".into()),
         };
-        return (StatusCode::FORBIDDEN, Json(resp));
-    }
-    let app = guard.as_mut().unwrap();
-
-    // Pass volume_type to remove_folder
-    match remove_folder(
-        &app.blob_path,
-        app.volume_type,
-        &app.derived_key,
-        &mut app.metadata,
-        &params.path,
-    ) {
-        Ok(true) => {
-            let resp: ApiResponse<()> = ApiResponse {
-                success: true,
-                data: None,
-                message: None,
-            };
-            return (StatusCode::OK, Json(resp));
-        }
-        Ok(false) => {
-            let resp: ApiResponse<()> = ApiResponse {
-                success: false,
-                data: None,
-                message: Some("Folder not found".into()),
-            };
-            return (StatusCode::NOT_FOUND, Json(resp));
-        }
-        Err(e) => {
-            let resp: ApiResponse<()> = ApiResponse {
-                success: false,
-                data: None,
-                message: Some(format!("Delete error: {}", e)),
-            };
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(resp));
-        }
+        (StatusCode::NOT_FOUND, Json(resp)).into_response()
     }
 }
 
-async fn download_handler(
+// Session-based download handler using query params (legacy route) 
+async fn download_query_handler(
+    auth: AuthContext,
     Extension(app_context): Extension<AppContext>,
     Query(params): Query<DownloadParams>,
-) -> impl IntoResponse {
-    let guard = app_context.state.lock().unwrap();
-    if guard.is_none() {
+) -> Response {
+    if let Some(session) = app_context.app_state.session_manager.get_session(&auth.session_id) {
+        match session.metadata.get(&params.path) {
+            Some(metadata) => {
+                match get_file(&session.blob_path, &auth.derived_key, metadata) {
+                    Ok(content) => {
+                        let mime = from_path(&params.path).first_or_octet_stream();
+                        Response::builder()
+                            .status(StatusCode::OK)
+                            .header(CONTENT_TYPE, mime.as_ref())
+                            .header(
+                                CONTENT_DISPOSITION,
+                                format!("inline; filename=\"{}\"", params.path),
+                            )
+                            .body(axum::body::Body::from(content))
+                            .unwrap()
+                            .into_response()
+                    }
+                    Err(e) => {
+                        let resp: ApiResponse<()> = ApiResponse {
+                            success: false,
+                            data: None,
+                            message: Some(format!("Error reading file: {}", e)),
+                        };
+                        (StatusCode::INTERNAL_SERVER_ERROR, Json(resp)).into_response()
+                    }
+                }
+            }
+            None => {
+                let resp: ApiResponse<()> = ApiResponse {
+                    success: false,
+                    data: None,
+                    message: Some("File not found".into()),
+                };
+                (StatusCode::NOT_FOUND, Json(resp)).into_response()
+            }
+        }
+    } else {
         let resp: ApiResponse<()> = ApiResponse {
             success: false,
             data: None,
-            message: Some("Locked".into()),
+            message: Some("Session not found".into()),
         };
-        return (StatusCode::FORBIDDEN, Json(resp)).into_response();
-    }
-    let app = guard.as_ref().unwrap();
-
-    // Look up file metadata by path
-    match app.metadata.get(&params.path) {
-        Some(metadata) => {
-            // Read file data outside of the lock
-            match get_file(&app.blob_path, &app.derived_key, metadata) {
-                Ok(content) => {
-                    let mime = from_path(&params.path).first_or_octet_stream();
-                    return Response::builder()
-                        .status(StatusCode::OK)
-                        .header(CONTENT_TYPE, mime.as_ref())
-                        .header(
-                            CONTENT_DISPOSITION,
-                            format!("inline; filename=\"{}\"", params.path),
-                        )
-                        .body(axum::body::Body::from(content))
-                        .unwrap()
-                        .into_response();
-                }
-                Err(e) => {
-                    let resp: ApiResponse<()> = ApiResponse {
-                        success: false,
-                        data: None,
-                        message: Some(format!("Error reading file: {}", e)),
-                    };
-                    return (StatusCode::INTERNAL_SERVER_ERROR, Json(resp)).into_response();
-                }
-            }
-        }
-        None => {
-            let resp: ApiResponse<()> = ApiResponse {
-                success: false,
-                data: None,
-                message: Some("File not found".into()),
-            };
-            return (StatusCode::NOT_FOUND, Json(resp)).into_response();
-        }
+        (StatusCode::NOT_FOUND, Json(resp)).into_response()
     }
 }
 
-// Batch upload handler
-async fn batch_upload_handler(
-    Extension(app_context): Extension<AppContext>,
-    Query(batch_info): Query<BatchInfo>,
-    mut multipart: Multipart,
-) -> impl IntoResponse {
-    // Use a static map to store files between batches
-    use once_cell::sync::Lazy;
-    use std::collections::HashMap;
-    use std::sync::Mutex;
-
-    static BATCH_FILES: Lazy<Mutex<HashMap<String, Vec<(String, Vec<u8>)>>>> =
-        Lazy::new(|| Mutex::new(HashMap::new()));
-
-    println!(
-        "Batch upload started, batch_id: {}, is_final: {}",
-        batch_info.batch_id, batch_info.is_final_batch
-    );
-
-    // Get the app state reference (but don't lock the state yet)
-    let is_locked = {
-        let guard = app_context.state.lock().unwrap();
-        guard.is_none()
-    };
-
-    if is_locked {
-        let resp: ApiResponse<FileList> = ApiResponse {
+// Download handler implementation
+async fn download_handler_impl(
+    auth: AuthContext,
+    app_context: Extension<AppContext>,
+    file_id: String,
+) -> Response {
+    if let Some(session) = app_context.app_state.session_manager.get_session(&auth.session_id) {
+        match session.metadata.get(&file_id) {
+            Some(metadata) => {
+                match get_file(&session.blob_path, &auth.derived_key, metadata) {
+                    Ok(content) => {
+                        let mime = from_path(&file_id).first_or_octet_stream();
+                        Response::builder()
+                            .status(StatusCode::OK)
+                            .header(CONTENT_TYPE, mime.as_ref())
+                            .header(
+                                CONTENT_DISPOSITION,
+                                format!("inline; filename=\"{}\"", file_id),
+                            )
+                            .body(axum::body::Body::from(content))
+                            .unwrap()
+                            .into_response()
+                    }
+                    Err(e) => {
+                        let resp: ApiResponse<()> = ApiResponse {
+                            success: false,
+                            data: None,
+                            message: Some(format!("Error reading file: {}", e)),
+                        };
+                        (StatusCode::INTERNAL_SERVER_ERROR, Json(resp)).into_response()
+                    }
+                }
+            }
+            None => {
+                let resp: ApiResponse<()> = ApiResponse {
+                    success: false,
+                    data: None,
+                    message: Some("File not found".into()),
+                };
+                (StatusCode::NOT_FOUND, Json(resp)).into_response()
+            }
+        }
+    } else {
+        let resp: ApiResponse<()> = ApiResponse {
             success: false,
             data: None,
-            message: Some("Locked".into()),
+            message: Some("Session not found".into()),
         };
-        return (StatusCode::FORBIDDEN, Json(resp));
+        (StatusCode::NOT_FOUND, Json(resp)).into_response()
     }
+}
 
-    // Extract blob_path before processing files
-    let _blob_path = {
-        let guard = app_context.state.lock().unwrap();
-        guard.as_ref().unwrap().blob_path.clone()
-    };
+async fn upload_handler(
+    auth: AuthContext,
+    Extension(app_context): Extension<AppContext>,
+    Query(current_folder_query): Query<std::collections::HashMap<String, String>>,
+    mut multipart: Multipart,
+) -> Response {
+    if let Some(_session) = app_context.app_state.session_manager.get_session(&auth.session_id) {
+        println!("Upload started, processing multipart data");
+        println!("Current folder query: {:?}", current_folder_query);
+        let mut file_count = 0;
+        let mut total_size = 0;
+        let mut uploaded_files: Vec<(String, Vec<u8>)> = Vec::new();
+        let mut file_paths: Vec<String> = Vec::new();
 
-    let mut file_count = 0;
-    let mut total_size = 0;
-    let mut current_batch_files: Vec<(String, Vec<u8>)> = Vec::new();
+        // Process multipart without holding any locks
+        while let Ok(Some(field)) = multipart.next_field().await {
+            if let Some(name) = field.name() {
+                if name == "file" || name == "files" {
+                    match field.file_name() {
+                        Some(fname) => {
+                            let fname_owned = fname.to_string();
+                            println!("Processing file: {}", fname_owned);
 
-    // Process multipart data
-    while let Ok(Some(field)) = multipart.next_field().await {
-        if let Some(name) = field.name() {
-            if name == "file" {
-                match field.file_name() {
-                    Some(fname) => {
-                        let fname_owned = fname.to_string();
-                        println!("Processing file: {}", fname_owned);
+                            match field.bytes().await {
+                                Ok(bytes) => {
+                                    let size = bytes.len();
+                                    total_size += size;
+                                    println!("Received file: {} ({} bytes)", fname_owned, size);
 
-                        match field.bytes().await {
-                            Ok(data) => {
-                                let size = data.len();
-                                total_size += size;
-                                println!("Received file: {} ({} bytes)", fname_owned, size);
-                                current_batch_files.push((fname_owned, data.to_vec()));
-                                file_count += 1;
-                            }
-                            Err(e) => {
-                                println!("Error reading file data: {}", e);
-                                let resp: ApiResponse<FileList> = ApiResponse {
-                                    success: false,
-                                    data: None,
-                                    message: Some(format!("Error reading file data: {}", e)),
-                                };
-                                return (StatusCode::INTERNAL_SERVER_ERROR, Json(resp));
+                                    uploaded_files.push((fname_owned, bytes.to_vec()));
+                                    file_count += 1;
+                                }
+                                Err(e) => {
+                                    println!("Error reading file data: {}", e);
+                                    let resp: ApiResponse<FileList> = ApiResponse {
+                                        success: false,
+                                        data: None,
+                                        message: Some(format!("Error reading file data: {}", e)),
+                                    };
+                                    return (StatusCode::INTERNAL_SERVER_ERROR, Json(resp)).into_response();
+                                }
                             }
                         }
+                        None => {
+                            println!("File field without filename");
+                        }
                     }
-                    None => {
-                        println!("File field without filename");
+                } else if name == "file_path" {
+                    match field.text().await {
+                        Ok(path) => {
+                            file_paths.push(path);
+                            println!("Received file path: {}", file_paths.last().unwrap());
+                        }
+                        Err(e) => {
+                            println!("Error reading file path: {}", e);
+                        }
                     }
                 }
             }
         }
-    }
-
-    println!(
-        "Processed {} files, total size: {} bytes",
-        file_count, total_size
-    );
-
-    // Store the files in the batch map
-    {
-        let mut batch_map = BATCH_FILES.lock().unwrap();
-        let batch_files = batch_map
-            .entry(batch_info.batch_id.clone())
-            .or_insert_with(Vec::new);
-        batch_files.extend(current_batch_files);
 
         println!(
-            "Added to batch {}, total files so far: {}",
-            batch_info.batch_id,
-            batch_files.len()
+            "Processed {} files, total size: {} bytes",
+            file_count, total_size
         );
-    }
 
-    // If this is the final batch, save all files to the blob
-    if batch_info.is_final_batch {
-        println!("Final batch received, saving all files to blob");
-
-        // Get all files for this batch
-        let all_batch_files = {
-            let mut batch_map = BATCH_FILES.lock().unwrap();
-            batch_map.remove(&batch_info.batch_id).unwrap_or_default()
-        };
-
-        println!("Retrieved {} files for final save", all_batch_files.len());
-
-        // Lock state
-        let mut guard = match app_context.state.lock() {
-            Ok(guard) => guard,
-            Err(e) => {
-                println!("Failed to acquire lock: {}", e);
+        if !uploaded_files.is_empty() {
+            // Process uploads
+            let mut successful_uploads = Vec::new();
+            let mut failed_uploads = Vec::new();
+            
+            for (index, (filename, content)) in uploaded_files.iter().enumerate() {
+                // Get a fresh session reference for each upload
+                if let Some(session) = app_context.app_state.session_manager.get_session(&auth.session_id) {
+                    let mut metadata = session.metadata.clone();
+                    
+                    // Use the full path if available, otherwise use filename
+                    let relative_path = if index < file_paths.len() {
+                        &file_paths[index]
+                    } else {
+                        filename
+                    };
+                    
+                    // Construct the full file path based on current folder
+                    let file_path = if let Some(current_folder) = current_folder_query.get("current_folder") {
+                        if current_folder.is_empty() {
+                            relative_path.clone()
+                        } else {
+                            format!("{}/{}", current_folder.trim_end_matches('/'), relative_path)
+                        }
+                    } else {
+                        relative_path.clone()
+                    };
+                    
+                    println!("Regular upload: Constructing file path: '{}' + '{}' = '{}'", 
+                             current_folder_query.get("current_folder").unwrap_or(&"".to_string()), relative_path, file_path);
+                    
+                    let mime_type = from_path(&filename).first_or_octet_stream();
+                    match add_file(
+                        &session.blob_path,
+                        session.volume_type,
+                        &auth.derived_key,
+                        &mut metadata,
+                        &file_path,
+                        &content,
+                        mime_type.as_ref(),
+                    ) {
+                        Ok(_) => {
+                            successful_uploads.push(file_path.clone());
+                            println!("Successfully uploaded: {}", file_path);
+                            // Update session metadata in session manager
+                            app_context.app_state.session_manager.update_session_metadata(&auth.session_id, metadata.clone());
+                        }
+                        Err(e) => {
+                            failed_uploads.push((file_path.clone(), e.to_string()));
+                            println!("Failed to upload {}: {}", file_path, e);
+                        }
+                    }
+                } else {
+                    failed_uploads.push((filename.clone(), "Session not found".to_string()));
+                }
+            }
+            
+            if !failed_uploads.is_empty() {
+                let error_msg = failed_uploads
+                    .iter()
+                    .map(|(name, err)| format!("{}: {}", name, err))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                    
                 let resp: ApiResponse<FileList> = ApiResponse {
                     success: false,
                     data: None,
-                    message: Some(format!("Server error: failed to acquire lock")),
+                    message: Some(format!("Upload errors: {}", error_msg)),
                 };
-                return (StatusCode::INTERNAL_SERVER_ERROR, Json(resp));
+                return (StatusCode::INTERNAL_SERVER_ERROR, Json(resp)).into_response();
             }
-        };
-
-        let app = match guard.as_mut() {
-            Some(app) => app,
-            None => {
-                println!("App state is None while holding lock");
-                let resp: ApiResponse<FileList> = ApiResponse {
-                    success: false,
-                    data: None,
-                    message: Some(format!("Server error: app state is invalid")),
-                };
-                return (StatusCode::INTERNAL_SERVER_ERROR, Json(resp));
-            }
-        };
-
-        // Add each file to the blob
-        for (path, content) in all_batch_files {
-            // Determine mime type
-            let mime_type = from_path(&path).first_or_octet_stream().to_string();
-
-            // Add file to the blob, passing volume_type
-            if let Err(e) = add_file(
-                &app.blob_path,
-                app.volume_type,
-                &app.derived_key,
-                &mut app.metadata,
-                &path,
-                &content,
-                &mime_type,
-            ) {
-                println!("Error adding file {}: {}", path, e);
-                let resp: ApiResponse<FileList> = ApiResponse {
-                    success: false,
-                    data: None,
-                    message: Some(format!("Error adding file {}: {}", path, e)),
-                };
-                return (StatusCode::INTERNAL_SERVER_ERROR, Json(resp));
-            }
+            
+            println!("All uploads successful: {:?}", successful_uploads);
+        } else {
+            println!("No files were uploaded");
         }
 
-        println!("All files saved successfully");
+        // Return current file list from session
+        if let Some(session) = app_context.app_state.session_manager.get_session(&auth.session_id) {
+            let files = session
+                .metadata
+                .iter()
+                .map(|(path, meta)| FileInfo {
+                    path: path.clone(),
+                    size: meta.size as usize,
+                })
+                .collect::<Vec<_>>();
 
-        // Return updated list
-        let files = app
-            .metadata
-            .iter()
-            .map(|(path, meta)| FileInfo {
-                path: path.clone(),
-                size: meta.size as usize,
-            })
-            .collect::<Vec<_>>();
-
-        let resp: ApiResponse<FileList> = ApiResponse {
-            success: true,
-            data: Some(FileList { files }),
-            message: None,
-        };
-        return (StatusCode::OK, Json(resp));
-    }
-
-    // For non-final batches, just return success
-    let resp: ApiResponse<FileList> = ApiResponse {
-        success: true,
-        data: None,
-        message: None,
-    };
-    (StatusCode::OK, Json(resp))
-}
-
-// Upload handler
-async fn upload_handler(
-    Extension(app_context): Extension<AppContext>,
-    mut multipart: Multipart,
-) -> impl IntoResponse {
-    // Check if state is locked and extract necessary info
-    let _blob_path = {
-        let guard = app_context.state.lock().unwrap();
-        if guard.is_none() {
+            let resp: ApiResponse<FileList> = ApiResponse {
+                success: true,
+                data: Some(FileList { files }),
+                message: None,
+            };
+            (StatusCode::OK, Json(resp)).into_response()
+        } else {
             let resp: ApiResponse<FileList> = ApiResponse {
                 success: false,
                 data: None,
-                message: Some("Locked".into()),
+                message: Some("Session not found".into()),
             };
-            return (StatusCode::FORBIDDEN, Json(resp));
+            (StatusCode::NOT_FOUND, Json(resp)).into_response()
         }
-        guard.as_ref().unwrap().blob_path.clone()
-    };
+    } else {
+        let resp: ApiResponse<FileList> = ApiResponse {
+            success: false,
+            data: None,
+            message: Some("Session not found".into()),
+        };
+        (StatusCode::NOT_FOUND, Json(resp)).into_response()
+    }
+}
 
-    println!("Upload started, processing multipart data");
-    let mut file_count = 0;
-    let mut total_size = 0;
-    let mut uploaded_files: Vec<(String, Vec<u8>)> = Vec::new();
+async fn batch_upload_handler(
+    auth: AuthContext,
+    Extension(app_context): Extension<AppContext>,
+    Query(batch_info): Query<BatchInfo>,
+    mut multipart: Multipart,
+) -> Response {
+    println!("=== BATCH UPLOAD DEBUG ===");
+    println!("Raw query string would be parsed into BatchInfo");
+    println!("Batch info - ID: {}, final: {}, current_folder: {:?}", 
+             batch_info.batch_id, batch_info.is_final_batch, batch_info.current_folder);
+    
+    if let Some(_session) = app_context.app_state.session_manager.get_session(&auth.session_id) {
+        println!("Batch upload started, processing multipart data");
+        let mut file_count = 0;
+        let mut total_size = 0;
+        let mut uploaded_files: Vec<(String, Vec<u8>)> = Vec::new();
+        let mut file_paths: Vec<String> = Vec::new();
 
-    // Process multipart without holding the lock
-    while let Ok(Some(field)) = multipart.next_field().await {
-        if let Some(name) = field.name() {
-            if name == "file" {
-                match field.file_name() {
-                    Some(fname) => {
-                        let fname_owned = fname.to_string();
-                        println!("Processing file: {}", fname_owned);
+        // Process multipart without holding any locks
+        while let Ok(Some(field)) = multipart.next_field().await {
+            if let Some(name) = field.name() {
+                if name == "files" {
+                    match field.file_name() {
+                        Some(fname) => {
+                            let fname_owned = fname.to_string();
+                            println!("Processing batch file: {}", fname_owned);
 
-                        match field.bytes().await {
-                            Ok(bytes) => {
-                                let size = bytes.len();
-                                total_size += size;
-                                println!("Received file: {} ({} bytes)", fname_owned, size);
+                            match field.bytes().await {
+                                Ok(bytes) => {
+                                    let size = bytes.len();
+                                    total_size += size;
+                                    println!("Received batch file: {} ({} bytes)", fname_owned, size);
 
-                                uploaded_files.push((fname_owned, bytes.to_vec()));
-                                file_count += 1;
-                            }
-                            Err(e) => {
-                                println!("Error reading file data: {}", e);
-                                let resp: ApiResponse<FileList> = ApiResponse {
-                                    success: false,
-                                    data: None,
-                                    message: Some(format!("Error reading file data: {}", e)),
-                                };
-                                return (StatusCode::INTERNAL_SERVER_ERROR, Json(resp));
+                                    uploaded_files.push((fname_owned, bytes.to_vec()));
+                                    file_count += 1;
+                                }
+                                Err(e) => {
+                                    println!("Error reading batch file data: {}", e);
+                                    let resp: ApiResponse<FileList> = ApiResponse {
+                                        success: false,
+                                        data: None,
+                                        message: Some(format!("Error reading file data: {}", e)),
+                                    };
+                                    return (StatusCode::INTERNAL_SERVER_ERROR, Json(resp)).into_response();
+                                }
                             }
                         }
+                        None => {
+                            println!("File field without filename in batch");
+                        }
                     }
-                    None => {
-                        println!("File field without filename");
+                } else if name == "file_paths" {
+                    match field.text().await {
+                        Ok(path) => {
+                            file_paths.push(path);
+                            println!("Received file path: {}", file_paths.last().unwrap());
+                        }
+                        Err(e) => {
+                            println!("Error reading file path: {}", e);
+                        }
                     }
                 }
             }
         }
-    }
 
-    println!(
-        "Processed {} files, total size: {} bytes",
-        file_count, total_size
-    );
+        println!(
+            "Processed {} batch files, total size: {} bytes",
+            file_count, total_size
+        );
 
-    if !uploaded_files.is_empty() {
-        // Now lock the state and update files
-        let mut guard = match app_context.state.lock() {
-            Ok(guard) => guard,
-            Err(e) => {
-                println!("Failed to acquire lock: {}", e);
+        if !uploaded_files.is_empty() {
+            // Process uploads
+            let mut successful_uploads = Vec::new();
+            let mut failed_uploads = Vec::new();
+            
+            for (index, (filename, content)) in uploaded_files.iter().enumerate() {
+                // Get a fresh session reference for each upload
+                if let Some(session) = app_context.app_state.session_manager.get_session(&auth.session_id) {
+                    let mut metadata = session.metadata.clone();
+                    
+                    // Use the full path if available, otherwise use filename
+                    let relative_path = if index < file_paths.len() {
+                        &file_paths[index]
+                    } else {
+                        filename
+                    };
+                    
+                    // Construct the full file path based on current folder
+                    let file_path = if let Some(ref folder) = batch_info.current_folder {
+                        if folder.is_empty() {
+                            relative_path.clone()
+                        } else {
+                            format!("{}/{}", folder.trim_end_matches('/'), relative_path)
+                        }
+                    } else {
+                        relative_path.clone()
+                    };
+                    
+                    println!("Constructing file path: '{}' + '{}' = '{}'", 
+                             batch_info.current_folder.as_deref().unwrap_or(""), relative_path, file_path);
+                    
+                    let mime_type = from_path(&filename).first_or_octet_stream();
+                    match add_file(
+                        &session.blob_path,
+                        session.volume_type,
+                        &auth.derived_key,
+                        &mut metadata,
+                        &file_path,
+                        &content,
+                        mime_type.as_ref(),
+                    ) {
+                        Ok(_) => {
+                            successful_uploads.push(file_path.clone());
+                            println!("Successfully uploaded batch file: {}", file_path);
+                            // Update session metadata in session manager
+                            app_context.app_state.session_manager.update_session_metadata(&auth.session_id, metadata.clone());
+                        }
+                        Err(e) => {
+                            failed_uploads.push((file_path.clone(), e.to_string()));
+                            println!("Failed to upload batch file {}: {}", file_path, e);
+                        }
+                    }
+                } else {
+                    failed_uploads.push((filename.clone(), "Session not found".to_string()));
+                }
+            }
+            
+            if !failed_uploads.is_empty() {
+                let error_msg = failed_uploads
+                    .iter()
+                    .map(|(name, err)| format!("{}: {}", name, err))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                    
                 let resp: ApiResponse<FileList> = ApiResponse {
                     success: false,
                     data: None,
-                    message: Some(format!("Server error: failed to acquire lock")),
+                    message: Some(format!("Batch upload errors: {}", error_msg)),
                 };
-                return (StatusCode::INTERNAL_SERVER_ERROR, Json(resp));
+                return (StatusCode::INTERNAL_SERVER_ERROR, Json(resp)).into_response();
             }
-        };
-
-        let app = match guard.as_mut() {
-            Some(app) => app,
-            None => {
-                println!("App state is None while holding lock");
-                let resp: ApiResponse<FileList> = ApiResponse {
-                    success: false,
-                    data: None,
-                    message: Some(format!("Server error: app state is invalid")),
-                };
-                return (StatusCode::INTERNAL_SERVER_ERROR, Json(resp));
-            }
-        };
-
-        // Add each file to the blob
-        for (path, content) in uploaded_files {
-            // Determine mime type
-            let mime_type = from_path(&path).first_or_octet_stream().to_string();
-
-            // Add file to the blob, passing volume_type
-            if let Err(e) = add_file(
-                &app.blob_path,
-                app.volume_type,
-                &app.derived_key,
-                &mut app.metadata,
-                &path,
-                &content,
-                &mime_type,
-            ) {
-                println!("Error adding file {}: {}", path, e);
-                let resp: ApiResponse<FileList> = ApiResponse {
-                    success: false,
-                    data: None,
-                    message: Some(format!("Error adding file {}: {}", path, e)),
-                };
-                return (StatusCode::INTERNAL_SERVER_ERROR, Json(resp));
-            }
+            
+            println!("All batch uploads successful: {:?}", successful_uploads);
+        } else {
+            println!("No files were uploaded in batch");
         }
 
-        println!("Upload completed successfully");
+        // Return current file list from session
+        if let Some(session) = app_context.app_state.session_manager.get_session(&auth.session_id) {
+            let files = session
+                .metadata
+                .iter()
+                .map(|(path, meta)| FileInfo {
+                    path: path.clone(),
+                    size: meta.size as usize,
+                })
+                .collect::<Vec<_>>();
+
+            let resp: ApiResponse<FileList> = ApiResponse {
+                success: true,
+                data: Some(FileList { files }),
+                message: Some(format!("Batch {} uploaded successfully", batch_info.batch_id)),
+            };
+            (StatusCode::OK, Json(resp)).into_response()
+        } else {
+            let resp: ApiResponse<FileList> = ApiResponse {
+                success: false,
+                data: None,
+                message: Some("Session not found".into()),
+            };
+            (StatusCode::NOT_FOUND, Json(resp)).into_response()
+        }
     } else {
-        println!("No files were uploaded");
+        let resp: ApiResponse<FileList> = ApiResponse {
+            success: false,
+            data: None,
+            message: Some("Session not found".into()),
+        };
+        (StatusCode::NOT_FOUND, Json(resp)).into_response()
     }
-
-    // Return updated file list
-    let files = {
-        let guard = app_context.state.lock().unwrap();
-        let app = guard.as_ref().unwrap();
-        app.metadata
-            .iter()
-            .map(|(path, meta)| FileInfo {
-                path: path.clone(),
-                size: meta.size as usize,
-            })
-            .collect::<Vec<_>>()
-    };
-
-    let resp: ApiResponse<FileList> = ApiResponse {
-        success: true,
-        data: Some(FileList { files }),
-        message: None,
-    };
-    (StatusCode::OK, Json(resp))
 }
 
 async fn delete_blob_handler(
     Extension(app_context): Extension<AppContext>,
     Json(payload): Json<DeleteBlobPayload>,
-) -> impl IntoResponse {
+) -> Response {
     match &app_context.mode {
         ServerMode::Directory(dir) => {
             let path = dir.join(&payload.blob_name);
@@ -1339,7 +1823,7 @@ async fn delete_blob_handler(
                         data: None,
                         message: None,
                     };
-                    (StatusCode::OK, Json(resp))
+                    (StatusCode::OK, Json(resp)).into_response()
                 }
                 Err(e) => {
                     let resp: ApiResponse<()> = ApiResponse {
@@ -1347,7 +1831,7 @@ async fn delete_blob_handler(
                         data: None,
                         message: Some(format!("Failed to delete blob: {}", e)),
                     };
-                    (StatusCode::INTERNAL_SERVER_ERROR, Json(resp))
+                    (StatusCode::INTERNAL_SERVER_ERROR, Json(resp)).into_response()
                 }
             }
         }
@@ -1357,25 +1841,25 @@ async fn delete_blob_handler(
                 data: None,
                 message: Some("Delete not allowed in single mode".into()),
             };
-            (StatusCode::BAD_REQUEST, Json(resp))
+            (StatusCode::BAD_REQUEST, Json(resp)).into_response()
         }
     }
 }
 
 async fn compact_handler(
+    auth: AuthContext,
     Extension(app_context): Extension<AppContext>,
     Json(payload): Json<CompactPayload>,
-) -> impl IntoResponse {
-    let guard = app_context.state.lock().unwrap();
-    if let Some(app) = &*guard {
-        match compact_blob(&app.blob_path, &payload.password_s, &payload.password_h) {
+) -> Response {
+    if let Some(session) = app_context.app_state.session_manager.get_session(&auth.session_id) {
+        match compact_blob(&session.blob_path, &payload.password_s, &payload.password_h) {
             Ok(_) => {
                 let resp: ApiResponse<()> = ApiResponse {
                     success: true,
                     data: None,
                     message: None,
                 };
-                (StatusCode::OK, Json(resp))
+                (StatusCode::OK, Json(resp)).into_response()
             }
             Err(e) => {
                 let resp: ApiResponse<()> = ApiResponse {
@@ -1383,15 +1867,50 @@ async fn compact_handler(
                     data: None,
                     message: Some(format!("Compaction failed: {}", e)),
                 };
-                (StatusCode::INTERNAL_SERVER_ERROR, Json(resp))
+                (StatusCode::INTERNAL_SERVER_ERROR, Json(resp)).into_response()
             }
         }
     } else {
         let resp: ApiResponse<()> = ApiResponse {
             success: false,
             data: None,
-            message: Some("Locked".into()),
+            message: Some("Session not found".into()),
         };
-        (StatusCode::FORBIDDEN, Json(resp))
+        (StatusCode::NOT_FOUND, Json(resp)).into_response()
+    }
+}
+
+// Session-based compact handler for legacy route
+async fn compact_legacy_handler(
+    auth: AuthContext,
+    Extension(app_context): Extension<AppContext>,
+    Json(payload): Json<CompactPayload>,
+) -> Response {
+    if let Some(session) = app_context.app_state.session_manager.get_session(&auth.session_id) {
+        match compact_blob(&session.blob_path, &payload.password_s, &payload.password_h) {
+            Ok(_) => {
+                let resp: ApiResponse<()> = ApiResponse {
+                    success: true,
+                    data: None,
+                    message: None,
+                };
+                (StatusCode::OK, Json(resp)).into_response()
+            }
+            Err(e) => {
+                let resp: ApiResponse<()> = ApiResponse {
+                    success: false,
+                    data: None,
+                    message: Some(format!("Compaction failed: {}", e)),
+                };
+                (StatusCode::INTERNAL_SERVER_ERROR, Json(resp)).into_response()
+            }
+        }
+    } else {
+        let resp: ApiResponse<()> = ApiResponse {
+            success: false,
+            data: None,
+            message: Some("Session not found".into()),
+        };
+        (StatusCode::NOT_FOUND, Json(resp)).into_response()
     }
 }

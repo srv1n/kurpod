@@ -1,10 +1,26 @@
-use encryption_core::{MetadataMap, VolumeType};
-use std::path::PathBuf;
+use crate::session::SessionManager;
+use std::sync::Arc;
 
+/// Application state for the server
+/// This now uses session-based authentication instead of global state
+#[derive(Clone)]
 pub struct AppState {
-    pub password: String,
-    pub blob_path: PathBuf,
-    pub metadata: MetadataMap,
-    pub derived_key: [u8; 32], // Store the derived key to avoid recalculation
-    pub volume_type: VolumeType, // Track which volume is unlocked
+    pub session_manager: Arc<SessionManager>,
+}
+
+impl AppState {
+    pub fn new() -> Self {
+        let session_manager = Arc::new(SessionManager::new());
+        
+        // Start the background cleanup task
+        session_manager.start_cleanup_task();
+        
+        Self { session_manager }
+    }
+}
+
+impl Default for AppState {
+    fn default() -> Self {
+        Self::new()
+    }
 }

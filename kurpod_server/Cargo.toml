@@ -38,6 +38,11 @@ hex = "0.4.3"
 log = { workspace = true }
 env_logger = "0.11.6"
 
+# Session management dependencies
+hmac = "0.12"
+sha2 = "0.10"
+base64 = "0.22"
+
 [build-dependencies]
 
 # Use the same profile settings as the root package 
