@@ -4,6 +4,17 @@ on:
   push:
     tags:
       - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      job:
+        description: 'Which job to run'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+        - all
+        - docker-only
+        - binaries-only
 
 permissions:
   contents: write
@@ -16,6 +27,7 @@ jobs:
   create-release:
     name: Create Release
     runs-on: ubuntu-22.04
+    if: github.event_name == 'push' || inputs.job == 'all' || inputs.job == 'binaries-only'
     outputs:
       upload_url: ${{ steps.create_release.outputs.upload_url }}
       version: ${{ steps.get_version.outputs.version }}
@@ -145,7 +157,7 @@ jobs:
     name: Build and Upload (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
     needs: create-release
-    if: needs.create-release.outputs.release_created == 'true' || needs.create-release.outputs.release_created == ''
+    if: (needs.create-release.outputs.release_created == 'true' || needs.create-release.outputs.release_created == '') && (github.event_name == 'push' || inputs.job == 'all' || inputs.job == 'binaries-only')
     strategy:
       fail-fast: false
       matrix:
@@ -438,7 +450,7 @@ jobs:
     name: Create Combined Checksums
     runs-on: ubuntu-22.04
     needs: [create-release, build-and-upload]
-    if: needs.create-release.outputs.release_created == 'true' || needs.create-release.outputs.release_created == ''
+    if: (needs.create-release.outputs.release_created == 'true' || needs.create-release.outputs.release_created == '') && (github.event_name == 'push' || inputs.job == 'all' || inputs.job == 'binaries-only')
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -547,8 +559,8 @@ jobs:
   docker-build:
     name: Build and Push Docker Images
     runs-on: ubuntu-22.04
-    needs: create-release
-    if: needs.create-release.outputs.release_created == 'true' || needs.create-release.outputs.release_created == ''
+    needs: [create-release]
+    if: always() && ((github.event_name == 'push' && (needs.create-release.outputs.release_created == 'true' || needs.create-release.outputs.release_created == '')) || inputs.job == 'all' || inputs.job == 'docker-only')
     steps:
       - name: Checkout
         uses: actions/checkout@v4
