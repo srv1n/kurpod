@@ -527,16 +527,37 @@ jobs:
           # Download and extract
           curl -sL "https://github.com/${REPO}/releases/download/v${VERSION}/${ARCHIVE}" | tar -xz
           
-          # Make executable and move to PATH
+          # Make executable
           chmod +x kurpod_server
           
-          if [ -w "/usr/local/bin" ]; then
+          # Determine install location (prefer user install)
+          if [ -n "$HOME" ] && mkdir -p "$HOME/.local/bin" 2>/dev/null; then
+            INSTALL_DIR="$HOME/.local/bin"
+            mv kurpod_server "$INSTALL_DIR/"
+            echo "✅ KURPOD Server installed to $INSTALL_DIR/kurpod_server"
+            
+            # Add to PATH if not already there
+            if ! echo "$PATH" | grep -q "$HOME/.local/bin"; then
+              echo ""
+              echo "📝 Add to your shell profile to make 'kurpod_server' available globally:"
+              echo "   echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.bashrc"
+              echo "   echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.zshrc"
+              echo ""
+              echo "🔄 Or reload your shell: source ~/.bashrc (or ~/.zshrc)"
+            fi
+          elif [ -w "/usr/local/bin" ]; then
             mv kurpod_server /usr/local/bin/
             echo "✅ KURPOD Server installed to /usr/local/bin/kurpod_server"
           else
             echo "ℹ️  KURPOD Server extracted to current directory"
             echo "   Run with: ./kurpod_server"
-            echo "   Or move to PATH: sudo mv kurpod_server /usr/local/bin/"
+            echo ""
+            echo "🔧 To install system-wide:"
+            echo "   sudo mv kurpod_server /usr/local/bin/"
+            echo ""
+            echo "🏠 To install for current user:"
+            echo "   mkdir -p ~/.local/bin && mv kurpod_server ~/.local/bin/"
+            echo "   export PATH=\"\$HOME/.local/bin:\$PATH\""
           fi
           
           echo ""

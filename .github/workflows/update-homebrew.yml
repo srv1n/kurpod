@@ -1,0 +1,77 @@
+name: Update Homebrew Formula
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to update formula for'
+        required: true
+        default: 'latest'
+
+jobs:
+  update-homebrew-formula:
+    name: Update Homebrew Formula
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Get version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.version }}" != "latest" ]; then
+            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Update Homebrew formula
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          echo "🍺 Updating Homebrew formula for v$VERSION"
+          
+          # Run the update script
+          chmod +x scripts/update-homebrew-formula.sh
+          ./scripts/update-homebrew-formula.sh "$VERSION"
+
+      - name: Commit updated formula
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          
+          # Configure git
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Commit changes
+          git add Formula/kurpod.rb
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Update Homebrew formula to v$VERSION [skip-ci]"
+            git push origin main
+            echo "✅ Updated Homebrew formula to v$VERSION"
+          fi
+
+      - name: Summary
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          cat << EOF
+          ## 🍺 Homebrew Formula Updated
+          
+          **Version**: v$VERSION
+          
+          **Users can now install with:**
+          \`\`\`bash
+          brew install srv1n/kurpod/kurpod
+          \`\`\`
+          
+          **Or update existing installations:**
+          \`\`\`bash
+          brew update && brew upgrade kurpod
+          \`\`\`
+          EOF
