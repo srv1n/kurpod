@@ -14,8 +14,8 @@ RUN bun run build \
 FROM alpine:3.19 AS alpine
 RUN apk add -U --no-cache ca-certificates
 
-# Build stage - using Alpine for musl support
-FROM --platform=$BUILDPLATFORM rust:1.81-alpine AS builder
+# Build stage - using Alpine for musl support  
+FROM --platform=$BUILDPLATFORM rust:1.86-alpine AS builder
 
 # Install build dependencies for musl static linking
 RUN apk add --no-cache \
