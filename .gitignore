@@ -57,6 +57,7 @@ enc_tauri/src-tauri/gen/apple/Externals/
 CLAUDE.md
 cleanup_ios.sh
 clear.sh
+.claude/*
 
 enc_tauri/
 *.key
@@ -64,3 +65,4 @@ private.key
 public.key
 *.p12
 *.b64
+docs/DesignInternal/*
