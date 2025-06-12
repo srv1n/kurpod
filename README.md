@@ -11,8 +11,9 @@ No accounts. No tracking. No cloud dependencies. Just bulletproof encryption wit
 
 ### Option 1: Homebrew (macOS - Recommended)
 ```bash
-# Direct install (easiest)
-brew install srv1n/kurpod/kurpod
+# Add tap and install
+brew tap srv1n/kurpod https://github.com/srv1n/kurpod.git
+brew install kurpod
 
 # Start server
 kurpod_server
@@ -199,8 +200,9 @@ services:
 
 #### macOS (Homebrew - Recommended)
 ```bash
-# Direct install (no tap needed)
-brew install srv1n/kurpod/kurpod
+# Add tap and install
+brew tap srv1n/kurpod https://github.com/srv1n/kurpod.git
+brew install kurpod
 
 # Start server
 kurpod_server

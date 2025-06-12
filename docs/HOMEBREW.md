@@ -4,19 +4,10 @@ KURPOD can be installed on macOS using Homebrew for the best user experience.
 
 ## 🍺 Quick Install
 
-### Method 1: Direct Install (Recommended)
-```bash
-# Install directly from the repository
-brew install srv1n/kurpod/kurpod
-
-# Start the server
-kurpod_server
-```
-
-### Method 2: Tap Install
+### Tap Install (Recommended)
 ```bash
 # Add the tap (using main repo)
-brew tap srv1n/kurpod
+brew tap srv1n/kurpod https://github.com/srv1n/kurpod.git
 
 # Install KURPOD
 brew install kurpod
@@ -50,11 +41,8 @@ The formula is automatically updated when you create a new release tag.
 #### Installation
 
 ```bash
-# Method 1: Direct install (easiest)
-brew install srv1n/kurpod/kurpod
-
-# Method 2: Tap install
-brew tap srv1n/kurpod
+# Add tap and install
+brew tap srv1n/kurpod https://github.com/srv1n/kurpod.git
 brew install kurpod
 
 # Verify installation
