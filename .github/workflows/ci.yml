@@ -53,10 +53,12 @@ jobs:
       
       - name: Install bun
         uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.15
       
       - name: Install dependencies
         working-directory: ./frontend
-        run: bun install
+        run: bun install --frozen-lockfile
       
       - name: Build frontend
         working-directory: ./frontend
@@ -83,11 +85,13 @@ jobs:
       
       - name: Install bun
         uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.15
       
       - name: Build frontend
         run: |
           cd frontend
-          bun install
+          bun install --frozen-lockfile
           bun run build
       
       - name: Install Linux dependencies
