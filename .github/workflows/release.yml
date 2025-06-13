@@ -635,7 +635,8 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # Disable GitHub Actions cache to avoid timeout issues with long builds
+          # cache-from: type=gha
+          # cache-to: type=gha,mode=max
           build-args: |
             VERSION=${{ needs.create-release.outputs.version }}
