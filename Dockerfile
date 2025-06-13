@@ -14,8 +14,8 @@ RUN bun install --frozen-lockfile || bun install \
  && bun pm cache rm || true                     # Bun <1.2 has no pm‑cache command
 
 ################ 2️⃣  Rust builder (static musl) ########
-# Pin to a tag that is Alpine on BOTH amd64 & arm64
-FROM --platform=$BUILDPLATFORM rust:1.86-alpine AS builder
+# Use native platform for compilation - no cross-compilation
+FROM rust:1.86-alpine AS builder
 WORKDIR /usr/src/app
 
 # Alpine tool‑chain for a fully‑static binary
@@ -33,12 +33,12 @@ COPY --from=frontend /frontend/dist ./frontend/dist
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     cargo fetch --locked
 
-# Determine cross‑compile target from Buildx
-ARG TARGETPLATFORM
-RUN case "$TARGETPLATFORM" in \
-      linux/amd64) echo "x86_64-unknown-linux-musl" > /tmp/target ;; \
-      linux/arm64) echo "aarch64-unknown-linux-musl" > /tmp/target ;; \
-      *) echo "Unsupported \$TARGETPLATFORM: $TARGETPLATFORM" && exit 1 ;; \
+# Determine native target architecture
+RUN ARCH=$(uname -m) && \
+    case "$ARCH" in \
+      x86_64) echo "x86_64-unknown-linux-musl" > /tmp/target ;; \
+      aarch64) echo "aarch64-unknown-linux-musl" > /tmp/target ;; \
+      *) echo "Unsupported architecture: $ARCH" && exit 1 ;; \
     esac && rustup target add "$(cat /tmp/target)"
 
 ENV RUSTFLAGS="-C target-feature=+crt-static"
