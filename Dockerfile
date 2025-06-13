@@ -17,16 +17,17 @@ FROM --platform=$BUILDPLATFORM rust:1.78-slim-bookworm AS builder
 
 WORKDIR /usr/src/app
 
-# Copy workspace files
+# Copy workspace files first
 COPY Cargo.toml Cargo.lock ./
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    cargo fetch
-
 COPY encryption_core ./encryption_core
 COPY kurpod_server ./kurpod_server
 
 # Copy the built frontend from frontend-builder stage - rust-embed will embed this
 COPY --from=frontend-builder /usr/src/app/dist ./frontend/dist
+
+# Fetch dependencies after all source is available
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    cargo fetch
 
 # Build with cargo cache mounts
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
