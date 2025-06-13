@@ -1,60 +1,62 @@
 # syntax=docker/dockerfile:1.7
 
-# Build frontend first
-FROM --platform=$BUILDPLATFORM oven/bun:slim AS frontend-builder
+################ 1️⃣  Front‑end ################
+FROM --platform=$BUILDPLATFORM oven/bun:1.2.15-alpine AS frontend
+WORKDIR /frontend
 
+# Copy *everything* from the frontend folder up front.
+COPY frontend/ ./
+
+# Bun handles both lockfile formats; if none exist it will create one.
+RUN bun install --frozen-lockfile || bun install \
+ && bun run build \
+ && rm -rf node_modules \
+ && bun pm cache rm || true                     # Bun <1.2 has no pm‑cache command
+
+################ 2️⃣  Rust builder (static musl) ########
+# Pin to a tag that is Alpine on BOTH amd64 & arm64
+FROM --platform=$BUILDPLATFORM rust:1.86-alpine AS builder
 WORKDIR /usr/src/app
-COPY frontend/package.json frontend/bun.lock ./
-RUN bun install --frozen-lockfile
 
-COPY frontend ./
-RUN bun run build \
-    && rm -rf node_modules \
-    && bun pm cache rm
+# Alpine tool‑chain for a fully‑static binary
+RUN apk add --no-cache musl-dev openssl-dev openssl-libs-static \
+            pkgconfig build-base \
+ && echo "musl + static OpenSSL ready"
 
-# Build stage - using official Rust image for better compatibility
-FROM --platform=$BUILDPLATFORM rust:1.78-slim-bookworm AS builder
-
-WORKDIR /usr/src/app
-
-# Copy workspace files
+# ---- workspace files *before* we run any Cargo command ----
 COPY Cargo.toml Cargo.lock ./
 COPY encryption_core ./encryption_core
-COPY kurpod_server ./kurpod_server
+COPY kurpod_server   ./kurpod_server
+COPY --from=frontend /frontend/dist ./frontend/dist
 
-# Copy the built frontend from frontend-builder stage - rust-embed will embed this
-COPY --from=frontend-builder /usr/src/app/dist ./frontend/dist
+# Pre‑fetch crates (Docker cache mount)
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    cargo fetch --locked
 
-# Build with cargo cache mounts (this will fetch dependencies automatically)
+# Determine cross‑compile target from Buildx
+ARG TARGETPLATFORM
+RUN case "$TARGETPLATFORM" in \
+      linux/amd64) echo "x86_64-unknown-linux-musl" > /tmp/target ;; \
+      linux/arm64) echo "aarch64-unknown-linux-musl" > /tmp/target ;; \
+      *) echo "Unsupported \$TARGETPLATFORM: $TARGETPLATFORM" && exit 1 ;; \
+    esac && rustup target add "$(cat /tmp/target)"
+
+ENV RUSTFLAGS="-C target-feature=+crt-static"
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/src/app/target \
-    cargo build --release --locked --bin kurpod_server
+    TARGET=$(cat /tmp/target) && \
+    cargo build --release --locked --target "$TARGET" --bin kurpod_server \
+ && strip -s target/$TARGET/release/kurpod_server \
+ && cp       target/$TARGET/release/kurpod_server /kurpod_server
 
-# Runtime stage - use Debian slim for better compatibility
-FROM debian:bookworm-slim AS runtime
+################ 3️⃣  Root‑CA bundle ############
+FROM alpine:3.19 AS certs
+RUN apk add --no-cache ca-certificates
 
-# Install CA certificates for HTTPS
-RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
-
-# Create app directory for data storage
-RUN mkdir -p /app/data
-
-# Copy the binary from the standard cargo build location
-COPY --from=builder /usr/src/app/target/release/kurpod_server /kurpod_server
-
-# Expose port
+################ 4️⃣  Scratch runtime ###########
+FROM scratch
+COPY --from=certs   /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+COPY --from=builder /kurpod_server /kurpod_server
 EXPOSE 3000
-
-# Add build-time metadata
-ARG VERSION
-LABEL org.opencontainers.image.title="KURPOD Server"
-LABEL org.opencontainers.image.description="Secure encrypted file storage server with plausible deniability"
-LABEL org.opencontainers.image.version="${VERSION}"
-LABEL org.opencontainers.image.source="https://github.com/srv1n/kurpod"
-LABEL org.opencontainers.image.licenses="AGPL-3.0"
-LABEL org.opencontainers.image.vendor="KURPOD"
-
-# Default command - store data in /app/data
-# Volume mounting works normally: docker run -v /host/path:/app/data kurpod
 ENTRYPOINT ["/kurpod_server"]
 CMD ["--port", "3000", "--blob", "/app/data/storage.blob"]
