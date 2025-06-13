@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1.7
+
 # Build frontend first
 FROM --platform=$BUILDPLATFORM oven/bun:slim AS frontend-builder
 
@@ -10,72 +12,38 @@ RUN bun run build \
     && rm -rf node_modules \
     && bun pm cache rm
 
-# Get CA certificates from Alpine
-FROM alpine:3.19 AS alpine
-RUN apk add -U --no-cache ca-certificates
+# Build stage - using official Rust image for better compatibility
+FROM --platform=$BUILDPLATFORM rust:1.78-slim-bookworm AS builder
 
-# Build stage - using native platform for each architecture
-FROM rust:1.86-alpine AS builder
-
-# Install build dependencies for musl static linking
-RUN apk add --no-cache \
-    musl-dev \
-    pkgconfig \
-    openssl-dev \
-    openssl-libs-static
-
-# Create app directory
 WORKDIR /usr/src/app
 
 # Copy workspace files
 COPY Cargo.toml Cargo.lock ./
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    cargo fetch
+
 COPY encryption_core ./encryption_core
 COPY kurpod_server ./kurpod_server
 
 # Copy the built frontend from frontend-builder stage - rust-embed will embed this
 COPY --from=frontend-builder /usr/src/app/dist ./frontend/dist
 
-# Detect native architecture and set target
-RUN case "$(uname -m)" in \
-        "x86_64") echo "x86_64-unknown-linux-musl" > /target.txt ;; \
-        "aarch64") echo "aarch64-unknown-linux-musl" > /target.txt ;; \
-        *) echo "Unsupported architecture: $(uname -m)" && exit 1 ;; \
-    esac
+# Build with cargo cache mounts
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/src/app/target \
+    cargo build --release --locked --bin kurpod_server
 
-# Add the musl target for the native architecture
-RUN export NATIVE_TARGET=$(cat /target.txt) && \
-    rustup target add $NATIVE_TARGET
+# Runtime stage - use Debian slim for better compatibility
+FROM debian:bookworm-slim AS runtime
 
-# Check what we have so far
-RUN echo "Target file contents:" && cat /target.txt && \
-    echo "Native architecture: $(uname -m)" && \
-    echo "Available targets:" && rustup target list --installed && \
-    echo "Frontend dist contents:" && ls -la frontend/
+# Install CA certificates for HTTPS
+RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
 
-# Configure for static linking and build natively
-ENV RUSTFLAGS="-C target-feature=+crt-static"
-RUN export CARGO_TARGET=$(cat /target.txt) && \
-    echo "Building for target: $CARGO_TARGET" && \
-    cargo build --release --target $CARGO_TARGET --bin kurpod_server && \
-    ls -la target/$CARGO_TARGET/release/ && \
-    cp target/$CARGO_TARGET/release/kurpod_server /kurpod_server && \
-    strip /kurpod_server
-
-# Create directory structure in builder
-FROM builder AS directory-creator
+# Create app directory for data storage
 RUN mkdir -p /app/data
 
-# Runtime stage - use scratch for minimal image
-FROM scratch
-
-# Copy CA certificates for HTTPS
-COPY --from=alpine /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
-
-# Copy the directory structure needed for volumes
-COPY --from=directory-creator /app /app
-
-# Copy the statically linked binary
-COPY --from=builder /kurpod_server /kurpod_server
+# Copy the binary from the standard cargo build location
+COPY --from=builder /usr/src/app/target/release/kurpod_server /kurpod_server
 
 # Expose port
 EXPOSE 3000

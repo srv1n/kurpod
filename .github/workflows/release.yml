@@ -635,6 +635,7 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          provenance: false          # skip SBOM generation for faster builds
           # Disable GitHub Actions cache to avoid timeout issues with long builds
           # cache-from: type=gha
           # cache-to: type=gha,mode=max
