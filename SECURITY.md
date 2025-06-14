@@ -2,7 +2,7 @@
 
 ## Reporting Security Vulnerabilities
 
-The Encapsule team takes security seriously. We appreciate your efforts to responsibly disclose your findings.
+The Kurpod team takes security seriously. We appreciate your efforts to responsibly disclose your findings.
 
 ### DO NOT
 
@@ -148,7 +148,7 @@ ufw enable
 
 ## Compliance
 
-Encapsule is designed to help with:
+Kurpod is designed to help with:
 - GDPR Article 32 (Security of processing)
 - HIPAA Security Rule (when properly configured)
 - PCI DSS Requirement 3 (Protect stored data)

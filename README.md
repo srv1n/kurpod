@@ -1,9 +1,9 @@
 # KURPOD
 
-**Production-ready encrypted file storage system** with military-grade security, plausible deniability, and modern web interface.
+**Self-hosted encrypted file storage system** with XChaCha20-Poly1305 encryption, plausible deniability, and a modern web interface.
 
-Your own encrypted file vault - self-hosted with enterprise features - delivered in a single 10MB binary.
-No accounts. No tracking. No cloud dependencies. Just bulletproof encryption with elegant usability.
+Your own encrypted file vault - self-hosted and delivered in a single ~2MB binary.
+No accounts. No tracking. No cloud dependencies.
 
 ---
 
@@ -21,6 +21,18 @@ kurpod_server
 # Access at http://localhost:3000
 ```
 
+**Uninstall:**
+```bash
+# Remove KURPOD
+brew uninstall kurpod
+
+# Remove tap (optional - removes the formula repository)
+brew untap srv1n/kurpod
+
+# Clean up any remaining dependencies
+brew autoremove
+```
+
 ### Option 2: Docker (Cross-platform)
 ```bash
 # Run latest version
@@ -29,55 +41,68 @@ docker run -p 3000:3000 -v ./data:/app/data ghcr.io/srv1n/kurpod:latest
 # Open browser to http://localhost:3000
 ```
 
+**Cleanup:**
+```bash
+# Stop and remove running container
+docker stop $(docker ps -q --filter ancestor=ghcr.io/srv1n/kurpod)
+docker rm $(docker ps -aq --filter ancestor=ghcr.io/srv1n/kurpod)
+
+# Remove downloaded image
+docker rmi ghcr.io/srv1n/kurpod:latest
+
+# Remove all unused images, containers, and volumes (optional)
+docker system prune -a --volumes
+```
+
 ### Option 3: Auto-Install Script
 ```bash
 # Auto-install for Linux/macOS
-curl -sSf https://github.com/srv1n/kurpod/releases/latest/download/install.sh | bash
+curl -L https://github.com/srv1n/kurpod/releases/latest/download/install.sh | bash
 
 # Then run
 kurpod_server
 ```
 
+**Uninstall:**
+```bash
+# Remove from user installation directory
+rm -f ~/.local/bin/kurpod_server
+
+# Or remove from system-wide installation
+sudo rm -f /usr/local/bin/kurpod_server
+
+# Clean up PATH entries in shell profile (if added manually)
+# Edit ~/.bashrc or ~/.zshrc and remove the ~/.local/bin PATH export line
+```
+
 ### Option 4: Manual Download
 Download the appropriate binary for your platform from the [releases page](https://github.com/srv1n/kurpod/releases).
 
+**Cleanup:**
+```bash
+# Remove the binary from wherever you placed it
+rm -f /path/to/kurpod_server
+
+# If you moved it to a system directory
+sudo rm -f /usr/local/bin/kurpod_server
+
+# Remove any data files created (optional - this deletes your encrypted blobs!)
+# rm -rf ./blobs/
+# rm -f ./storage.blob
+```
+
 ---
 
-## 📋 System Requirements
+## 📋 Supported Platforms
 
-### Minimum Requirements
-- **RAM**: 64 MB minimum, 256 MB recommended
-- **Storage**: 50 MB for application, plus storage for your encrypted data
-- **Network**: TCP port 3000 (configurable)
+### Desktop & Server
+- **Linux**: x86_64, ARM64 (including Raspberry Pi with 64-bit OS)
+- **macOS**: Intel and Apple Silicon (M1/M2/M3)
+- **Windows**: x86_64 and ARM64
 
-### Supported Operating Systems
-
-#### Linux
-- **x86_64** (Intel/AMD 64-bit)
-  - Ubuntu 18.04+ / Debian 10+
-  - RHEL/CentOS 7+ / Rocky Linux 8+
-  - Fedora 30+
-  - Arch Linux (current)
-- **ARM64** (64-bit ARM)
-  - Raspberry Pi 3B+ and newer (64-bit OS)
-  - ARM-based servers and containers
-- **MUSL variants** for Alpine Linux and static deployments
-
-#### macOS
-- **Intel x86_64**: macOS 10.14 (Mojave) or later
-- **Apple Silicon (M1/M2/M3)**: macOS 11.0 (Big Sur) or later
-- Signed and notarized binaries (no Gatekeeper warnings)
-
-#### Windows
-- **x86_64**: Windows 10 version 1903 or later
-- **ARM64**: Windows 11 on ARM (Surface Pro X, etc.)
-- No additional dependencies required
-
-#### Docker
+### Container
+- **Docker**: Multi-architecture images (~4.8MB compressed)
 - **Platforms**: linux/amd64, linux/arm64
-- **Base Image**: Distroless (no shell, minimal attack surface)
-- **Size**: ~30 MB compressed, ~60 MB uncompressed
-- Docker 20.10+ or compatible runtime
 
 ---
 
@@ -85,8 +110,8 @@ Download the appropriate binary for your platform from the [releases page](https
 
 ### 🔐 Security & Privacy
 - **Zero-knowledge architecture** - Server never sees unencrypted data
-- **Military-grade encryption** - XChaCha20-Poly1305 with 256-bit keys
-- **Quantum-resistant KDF** - Argon2id with 64MB memory cost
+- **Modern encryption** - XChaCha20-Poly1305 with 256-bit keys
+- **Strong key derivation** - Argon2id with 64MB memory cost
 - **Plausible deniability** - Hidden volumes indistinguishable from random data
 - **Session-based security** - Split-key authentication with automatic cleanup
 - **Memory protection** - Cryptographic material zeroized on timeout
@@ -103,13 +128,13 @@ Download the appropriate binary for your platform from the [releases page](https
 - **File organization** - Folders, search, sorting, and batch operations
 - **Video streaming** - HTTP range requests with custom controls
 
-### ⚡ Performance & Scalability
+### ⚡ Performance & Technical
 - **Streaming encryption** - Process files of any size
 - **Concurrent sessions** - Multiple users with isolated authentication
 - **Efficient storage** - Deduplication and compression
 - **Single binary** - No external dependencies or databases
-- **Container-optimized** - Multi-arch Docker images under 30MB
-- **Production-ready** - Structured logging, health checks, monitoring
+- **Container-optimized** - Multi-arch Docker images (~4.8MB)
+- **Structured logging** - Configurable log levels and health checks
 - **Cross-platform** - Linux, macOS, Windows (Intel and ARM)
 
 ### 🛠️ Developer Experience
@@ -312,16 +337,14 @@ export RUST_LOG=kurpod_server=info,encryption_core=info
 
 ## 📊 Performance & Sizing
 
-### Binary Sizes (Release Build)
-| Platform | Compressed | Uncompressed | Idle RAM |
-|----------|------------|--------------|----------|
-| Linux x86_64 (GNU) | 8.2 MB | 22 MB | ~6 MB |
-| Linux x86_64 (musl) | 7.8 MB | 21 MB | ~5 MB |
-| Linux ARM64 | 8.1 MB | 22 MB | ~6 MB |
-| macOS Intel | 8.5 MB | 23 MB | ~8 MB |
-| macOS Apple Silicon | 8.3 MB | 22 MB | ~7 MB |
-| Windows x86_64 | 8.9 MB | 24 MB | ~7 MB |
-| Docker Image | 30 MB | 60 MB | ~6 MB |
+### Binary Sizes
+| Platform | Binary Size |
+|----------|-------------|
+| Linux x86_64 | ~2MB |
+| Linux ARM64 | ~2MB |
+| macOS (Intel/Apple Silicon) | ~2MB |
+| Windows x86_64 | ~2MB |
+| Docker Image | ~4.8MB compressed |
 
 ### Performance Characteristics
 - **Startup time**: < 1 second
@@ -332,32 +355,33 @@ export RUST_LOG=kurpod_server=info,encryption_core=info
 
 ---
 
-## 🚀 Production Status
+## 🚀 Project Status
 
-### ✅ Completed Features
-- **✅ Session-based authentication** - Split-key security with token management
-- **✅ Modern web interface** - Dark/light themes, drag-and-drop, responsive design
-- **✅ Media handling** - Video streaming, thumbnail generation, file previews
-- **✅ REST API** - 15 endpoints with comprehensive authentication
-- **✅ Cross-platform builds** - Linux, macOS, Windows (Intel/ARM)
-- **✅ Docker optimization** - Multi-arch images with distroless base
-- **✅ Development tooling** - Hot reload, testing, linting, documentation
-- **✅ Security testing** - Comprehensive test suite including load and security tests
+This is the **initial open source release** of KURPOD. While the core functionality is working and tested, we consider this an early version and welcome community feedback.
 
-### 🔄 Current Limitations
-- **Single-user sessions** - Multi-user ACLs planned for v1.0
-- **Reverse proxy required** - Built-in TLS planned
-- **Web-only interface** - Native mobile apps in development
-- **Manual backups** - Automated backup system planned
+### ✅ What's Working
+- **Session-based authentication** - Split-key security with token management
+- **Web interface** - Dark/light themes, drag-and-drop, responsive design
+- **Media handling** - Video streaming, thumbnail generation, file previews
+- **REST API** - 15 endpoints with authentication
+- **Cross-platform builds** - Linux, macOS, Windows (Intel/ARM)
+- **Docker support** - Multi-arch images
+- **Development tooling** - Hot reload, testing, linting, documentation
 
-### 🗺️ v1.0 Roadmap
+### 🔄 Known Limitations
+- **Single-user sessions** - Multi-user ACLs not yet implemented
+- **No built-in TLS** - Requires reverse proxy for HTTPS
+- **Web-only interface** - No native mobile apps yet
+- **Manual backups** - No automated backup system
+
+### 🗺️ Future Plans
 - [ ] Built-in HTTPS/TLS termination
 - [ ] Multi-user support with granular permissions
 - [ ] Native mobile applications (iOS/Android)
 - [ ] Automated backup and synchronization
 - [ ] Server-side search and content indexing
 - [ ] WebDAV support for native OS integration
-- [ ] Formal third-party security audit
+- [ ] Third-party security audit
 - [ ] Hardware security key support
 
 ---
@@ -488,8 +512,8 @@ A: No. The whole point is that the blob is indistinguishable from random data, s
 **Q: What happens when I delete files?**  
 A: Deleting a file removes its metadata immediately. The encrypted data remains until you run compaction to reclaim space.
 
-**Q: Is this production ready?**  
-A: Yes, for single-user deployments. The core cryptography is battle-tested, session management is robust, and the web interface is polished. Multi-user features and additional security audits are planned for v1.0.
+**Q: Is this ready for production use?**  
+A: This is an initial release that works well for personal use and testing. The core cryptography uses established algorithms (XChaCha20-Poly1305, Argon2id), but we recommend thorough testing before critical use. Community feedback is welcome.
 
 **Q: How do I verify downloads?**  
 A: All releases include SHA256 checksums and GPG signatures. Download `SHA256SUMS` and verify with `sha256sum -c SHA256SUMS`.
@@ -558,7 +582,7 @@ See the [LICENSE](LICENSE) file for full details.
 
 ---
 
-**Built in Rust.** Uses public, peer-reviewed cryptography: XChaCha20-Poly1305 + Argon2id.  
-**Production-ready.** Help us reach v1.0 by testing, reporting issues, and contributing.
+**Built in Rust.** Uses established cryptography: XChaCha20-Poly1305 + Argon2id.  
+**Early release.** Help us improve by testing, reporting issues, and contributing.
 
 *Last updated: December 2024*

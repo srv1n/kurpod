@@ -43,16 +43,22 @@ use tokio::net::TcpListener;
 /// Command-line arguments
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
+#[command(group(
+    clap::ArgGroup::new("storage")
+        .args(&["single", "dir"]),
+))]
 struct Args {
     /// Port to listen on
     #[arg(short, long, default_value_t = 3000)]
     port: u16,
-    /// Specific blob file path (single-blob mode)
-    #[arg(short, long)]
-    blob: Option<String>,
-    /// Directory containing blob files (directory mode)
-    #[arg(long)]
-    blob_dir: Option<String>,
+
+    /// Path to a single blob file – enables single-blob mode
+    #[arg(short = 's', long = "single", value_name = "FILE", group = "storage")]
+    single: Option<PathBuf>,
+
+    /// Path to a directory that will hold (or already holds) blob files – enables directory mode
+    #[arg(short = 'd', long = "dir", value_name = "DIR", group = "storage")]
+    dir: Option<PathBuf>,
 }
 
 // Server mode for blob handling
@@ -270,14 +276,14 @@ async fn main() {
 
     // Determine server mode from args and environment variables
     let mode = match (
-        args.blob,
-        args.blob_dir,
+        args.single,
+        args.dir,
         std::env::var("BLOB_FILE"),
         std::env::var("BLOB_DIR"),
     ) {
         // CLI args take precedence
-        (Some(blob_file), None, _, _) => {
-            let path = PathBuf::from(blob_file);
+        (Some(single), None, _, _) => {
+            let path = single;
             println!("Single-blob mode: {}", path.display());
             // Validate that parent directory exists if file doesn't exist
             if !path.exists() {
@@ -297,8 +303,8 @@ async fn main() {
             }
             ServerMode::Single(path)
         }
-        (None, Some(blob_dir), _, _) => {
-            let dir_path = PathBuf::from(blob_dir);
+        (None, Some(dir), _, _) => {
+            let dir_path = dir;
             println!("Directory mode: {}", dir_path.display());
             validate_or_create_directory(&dir_path);
             ServerMode::Directory(dir_path)
@@ -338,7 +344,7 @@ async fn main() {
         }
         // Error: both blob and blob_dir specified
         (Some(_), Some(_), _, _) => {
-            eprintln!("Error: Cannot specify both --blob and --blob-dir");
+            eprintln!("Error: Cannot specify both --single and --dir");
             std::process::exit(1);
         }
     };

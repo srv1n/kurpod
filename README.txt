@@ -1,4 +1,4 @@
-KURPOD Server v0.0.5 - darwin-apple-silicon
+KURPOD Server v1.0.1 - darwin-apple-silicon
 
 ## Quick Start
 1. Extract this archive

@@ -1,6 +1,6 @@
-# Contributing to Encapsule
+# Contributing to Kurpod
 
-First off, thank you for considering contributing to Encapsule! It's people like you that make Encapsule such a great tool.
+First off, thank you for considering contributing to Kurpod! It's people like you that make Kurpod such a great tool.
 
 ## Code of Conduct
 
@@ -254,4 +254,4 @@ Contributors will be recognized in:
 - Release notes
 - Our website's contributors page
 
-Thank you for contributing to Encapsule! 🎉
+Thank you for contributing to Kurpod! 🎉

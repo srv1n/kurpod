@@ -20,7 +20,7 @@ A comprehensive guide to using Kurpod for secure encrypted file storage.
 
 Kurpod is a secure file storage system that encrypts all your files in a single blob file while providing an easy-to-use web interface. It's designed for users who need:
 
-- **Privacy**: All files are encrypted with military-grade encryption
+- **Privacy**: All files are encrypted with XChaCha20-Poly1305 encryption
 - **Plausible Deniability**: Hidden volumes for sensitive data
 - **Multi-Device Access**: Web interface accessible from any device on your network
 - **Simplicity**: No complex setup or user management
