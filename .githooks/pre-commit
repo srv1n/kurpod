@@ -1,0 +1,35 @@
+#!/bin/sh
+# Pre-commit hook to run formatters
+
+# Run cargo fmt
+echo "Running cargo fmt..."
+cargo fmt --all
+
+# Check if cargo fmt made any changes
+if ! git diff --quiet; then
+    echo "✨ Rust code has been formatted. Please review and stage the changes."
+    exit 1
+fi
+
+# Run frontend linting if frontend files changed
+if git diff --cached --name-only | grep -E '^frontend/.*\.(js|jsx|ts|tsx)$' > /dev/null; then
+    echo "Running frontend linter..."
+    cd frontend && bun lint --fix
+    cd ..
+fi
+
+# Run Tauri linting if Tauri files changed  
+if git diff --cached --name-only | grep -E '^enc_tauri/.*\.(js|jsx|ts|tsx)$' > /dev/null; then
+    echo "Running Tauri linter..."
+    cd enc_tauri && bun lint --fix
+    cd ..
+fi
+
+# Check if linters made any changes
+if ! git diff --quiet; then
+    echo "✨ JavaScript/TypeScript code has been formatted. Please review and stage the changes."
+    exit 1
+fi
+
+echo "✅ All formatting checks passed!"
+exit 0

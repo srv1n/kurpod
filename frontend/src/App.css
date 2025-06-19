@@ -1,0 +1,79 @@
+/* App-specific styles */
+
+/* Mobile touch target sizing */
+.mobile-touch-target {
+  min-height: 44px;
+  min-width: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Fullscreen gallery styles */
+.fullscreen-mode {
+  cursor: none;
+}
+
+.fullscreen-mode:hover {
+  cursor: default;
+}
+
+/* Placeholder container centering */
+.placeholder-container {
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* Fix for content overflow */
+#root {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Ensure proper scrolling */
+.overflow-auto {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* PDF viewer styles */
+.react-pdf__Document {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.react-pdf__Page {
+  margin-bottom: 10px;
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: var(--color-default-300);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--color-default-400);
+}
+
+/* Dark mode scrollbar */
+.dark ::-webkit-scrollbar-thumb {
+  background-color: var(--color-default-700);
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background-color: var(--color-default-600);
+}

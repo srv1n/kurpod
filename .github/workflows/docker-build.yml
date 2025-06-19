@@ -1,0 +1,58 @@
+name: Docker Build Test
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - Dockerfile
+      - docker-compose.yml
+      - .dockerignore
+      - .github/workflows/docker-build.yml   # so edits to this file rerun CI too
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  docker-build-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.15
+
+      - name: Build frontend
+        run: |
+          cd frontend
+          bun install --frozen-lockfile
+          bun run build
+
+      # ────────── single-platform sanity build ──────────
+      - name: Build (amd64)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64
+          tags: kurpod:test
+          push: false
+          provenance: false          # skip SBOM generation, a minute faster
+          build-args: |
+            VERSION=test
+
+      # ────────── optional multi-arch build ──────────
+      - name: Build (multi-arch)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          tags: kurpod:test-multiarch
+          push: false
+          provenance: false
+          build-args: |
+            VERSION=test

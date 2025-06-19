@@ -1,0 +1,20 @@
+# Rust formatting configuration
+edition = "2021"
+max_width = 100
+hard_tabs = false
+tab_spaces = 4
+newline_style = "Auto"
+use_small_heuristics = "Default"
+reorder_imports = true
+reorder_modules = true
+remove_nested_parens = true
+enum_discrim_align_threshold = 0
+struct_field_align_threshold = 0
+fn_params_layout = "Tall"
+trailing_comma = "Vertical"
+trailing_semicolon = true
+use_field_init_shorthand = false
+force_explicit_abi = true
+force_multiline_blocks = false
+imports_granularity = "Crate"
+imports_layout = "Mixed"

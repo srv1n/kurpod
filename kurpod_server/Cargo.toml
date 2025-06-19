@@ -1,0 +1,48 @@
+[package]
+name = "kurpod_server"
+version = "0.1.2"
+edition = "2021"
+description = "HTTP server implementation for the encrypted blob application"
+
+# Explicitly define the binary target
+[[bin]]
+name = "kurpod_server"
+path = "src/main.rs"
+
+[dependencies]
+# Internal dependencies
+encryption_core = { path = "../encryption_core" }
+# kurpod = { path = ".." }
+
+# Web server dependencies
+axum = "0.7"
+axum-extra = { version = "0.9.3" }
+tokio = { version = "1.0", features = ["full"] }
+tower-http = { version = "0.5", features = ["fs", "cors"] }
+tower = { version = "0.4" }
+rust-embed = "8.0"
+
+# CLI and utilities
+clap = { version = "4.5.39", features = ["derive"] }
+local-ip-address = "0.6.3"
+once_cell = "1.20.2"
+
+# Shared dependencies from workspace
+serde = { workspace = true }
+serde_json = { workspace = true }
+rand = { workspace = true }
+rand_core = { workspace = true }
+anyhow = { workspace = true }
+mime_guess = { workspace = true }
+hex = "0.4.3"
+log = { workspace = true }
+env_logger = "0.11.6"
+
+# Session management dependencies
+hmac = "0.12"
+sha2 = "0.10"
+base64 = "0.22"
+
+[build-dependencies]
+
+# Use the same profile settings as the root package 

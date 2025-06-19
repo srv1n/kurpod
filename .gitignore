@@ -1,0 +1,71 @@
+# Rust
+/target/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Environment files
+.env
+.env.local
+
+# Build artifacts
+/dist/
+/build/
+
+# Node modules
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+bun.lockb
+
+# Frontend build
+frontend/dist/
+enc_tauri/dist/
+
+# Tauri build
+src-tauri/target/
+enc_tauri/src-tauri/target/
+
+# Data files
+*.blob
+/blobs/
+
+# Internal documentation (not for public repo)
+/internal-docs/
+
+# iOS build artifacts
+enc_tauri/src-tauri/gen/apple/build/
+enc_tauri/src-tauri/gen/apple/Externals/
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+
+# Temporary files
+*.tmp
+*.temp
+CLAUDE.md
+cleanup_ios.sh
+clear.sh
+.claude/*
+
+enc_tauri/
+*.key
+private.key
+public.key
+*.p12
+*.b64
+docs/DesignInternal/*
+.claude
+.claude/*
+.cursor/*
+CLAUDE.md

@@ -1,0 +1,643 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      job:
+        description: 'Which job to run'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+        - all
+        - docker-only
+        - binaries-only
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  create-release:
+    name: Create Release
+    runs-on: ubuntu-22.04
+    if: github.event_name == 'push' || inputs.job == 'all' || inputs.job == 'binaries-only'
+    outputs:
+      upload_url: ${{ steps.create_release.outputs.upload_url }}
+      version: ${{ steps.get_version.outputs.version }}
+      release_created: ${{ steps.check_release.outputs.exists == 'false' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get version from tag
+        id: get_version
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Check if release already exists
+        id: check_release
+        run: |
+          if gh release view ${{ github.ref_name }} >/dev/null 2>&1; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "Release ${{ github.ref_name }} already exists"
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "Release ${{ github.ref_name }} does not exist"
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate changelog
+        if: steps.check_release.outputs.exists == 'false'
+        id: changelog
+        run: |
+          if [ $(git tag --list | wc -l) -eq 1 ]; then
+            # First release - include all commits
+            cat << EOF > changelog.md
+          ## 🎉 Initial Release v${{ steps.get_version.outputs.version }}
+
+          First release of KURPOD Server - a secure encrypted file storage solution!
+
+          ### ✨ Features
+          - **🔒 Military-grade encryption** using XChaCha20-Poly1305 + Argon2id
+          - **🎭 Plausible deniability** with dual volume support (standard + hidden)
+          - **🌐 Web interface** for easy file management from any device
+          - **📦 Single binary** - no complex installation required
+          - **🚀 Cross-platform** support (Linux, macOS, Windows)
+
+          ### 📥 Download Instructions
+          1. Download the appropriate binary for your platform below
+          2. Extract the archive: \`tar -xzf kurpod-*.tar.gz\` (or unzip \`*.zip\` for Windows)
+          3. Run the server: \`./kurpod_server\` (or \`kurpod_server.exe\` on Windows)
+          4. Open your browser to \`http://localhost:3000\`
+
+          ### 🔐 Security Features
+          - **Zero-knowledge architecture** - server never sees unencrypted data
+          - **Password-based encryption** with strong key derivation
+          - **File integrity verification** with authenticated encryption
+          - **Memory security** with automatic key cleanup
+
+          ### 📚 Documentation
+          - [User Manual](https://github.com/${{ github.repository }}/blob/main/docs/USER_MANUAL.md)
+          - [Architecture Documentation](https://github.com/${{ github.repository }}/blob/main/docs/ARCHITECTURE.md)
+          - [Contributing Guidelines](https://github.com/${{ github.repository }}/blob/main/docs/CONTRIBUTING.md)
+
+          ### 📋 Platform Support
+          - **Linux x86_64** (GNU and musl libc)
+          - **Linux ARM64** (Raspberry Pi and ARM servers)
+          - **macOS Intel** (x86_64)
+          - **macOS Apple Silicon** (M1/M2/M3)
+          - **Windows x86_64** and **Windows ARM64**
+          - **Docker** (Multi-arch: linux/amd64, linux/arm64)
+
+          ### 🐳 Docker Usage
+          \`\`\`bash
+          # Pull and run latest version
+          docker run -p 3000:3000 ghcr.io/srv1n/kurpod:latest
+          
+          # Run with persistent storage
+          docker run -p 3000:3000 -v ./data:/app/data ghcr.io/srv1n/kurpod:latest
+          
+          # Run specific version
+          docker run -p 3000:3000 ghcr.io/srv1n/kurpod:v${{ steps.get_version.outputs.version }}
+          \`\`\`
+
+          ⚠️ **License**: This software is licensed under AGPLv3.
+          EOF
+          else
+            # Get previous tag
+            PREV_TAG=$(git describe --tags --abbrev=0 HEAD~1)
+            cat << EOF > changelog.md
+          ## 🚀 What's Changed in v${{ steps.get_version.outputs.version }}
+
+          ### 📝 Changes Since $PREV_TAG
+          EOF
+            git log --oneline --pretty=format:"- %s" $PREV_TAG..HEAD | head -20 >> changelog.md
+            cat << EOF >> changelog.md
+
+          ### 📥 Download Instructions
+          1. Download the appropriate binary for your platform below
+          2. Extract: \`tar -xzf kurpod-*.tar.gz\` (or unzip \`*.zip\` for Windows)
+          3. Run: \`./kurpod_server\` (or \`kurpod_server.exe\` on Windows)
+
+          ### 🐳 Docker
+          \`\`\`bash
+          docker run -p 3000:3000 ghcr.io/srv1n/kurpod:v${{ steps.get_version.outputs.version }}
+          \`\`\`
+
+          **Full Changelog**: https://github.com/${{ github.repository }}/compare/$PREV_TAG...${{ github.ref_name }}
+          EOF
+          fi
+          
+          echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
+          cat changelog.md >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        if: steps.check_release.outputs.exists == 'false'
+        id: create_release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "KURPOD Server ${{ github.ref_name }}"
+          body: ${{ steps.changelog.outputs.CHANGELOG }}
+          draft: false
+          prerelease: false
+          generate_release_notes: false
+
+  build-and-upload:
+    name: Build and Upload (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    needs: create-release
+    if: (needs.create-release.outputs.release_created == 'true' || needs.create-release.outputs.release_created == '') && (github.event_name == 'push' || inputs.job == 'all' || inputs.job == 'binaries-only')
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux builds
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-22.04
+            name: linux-x86_64
+            display_name: "Linux x86_64"
+            cross: false
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-22.04
+            name: linux-x86_64-musl
+            display_name: "Linux x86_64 (musl)"
+            cross: false
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-22.04
+            name: linux-arm64
+            display_name: "Linux ARM64 (Raspberry Pi)"
+            cross: true
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-22.04
+            name: linux-arm64-musl
+            display_name: "Linux ARM64 (musl)"
+            cross: true
+          
+          # macOS builds
+          - target: x86_64-apple-darwin
+            os: macos-13
+            name: darwin-intel
+            display_name: "macOS Intel"
+            cross: false
+          - target: aarch64-apple-darwin
+            os: macos-13
+            name: darwin-apple-silicon
+            display_name: "macOS Apple Silicon"
+            cross: false
+          
+          # Windows builds
+          - target: x86_64-pc-windows-msvc
+            os: windows-2022
+            name: windows-x86_64
+            display_name: "Windows x86_64"
+            cross: false
+          - target: aarch64-pc-windows-msvc
+            os: windows-2022
+            name: windows-arm64
+            display_name: "Windows ARM64"
+            cross: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross-compilation tools
+        if: matrix.cross
+        run: cargo install cross --git https://github.com/cross-rs/cross
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.target }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.15
+
+      - name: Build frontend
+        run: |
+          cd frontend
+          bun install --frozen-lockfile
+          bun run build
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux' && !matrix.cross
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libssl-dev
+          if [[ "${{ matrix.target }}" == *"musl"* ]]; then
+            sudo apt-get install -y musl-tools
+          fi
+
+      - name: Build binary (native)
+        if: '!matrix.cross'
+        run: cargo build --release --target ${{ matrix.target }} -p kurpod_server
+        env:
+          CARGO_TARGET_DIR: target
+
+      - name: Build binary (cross-compilation)
+        if: matrix.cross
+        run: cross build --release --target ${{ matrix.target }} -p kurpod_server
+        env:
+          CARGO_TARGET_DIR: target
+
+      # macOS code signing and notarization
+      - name: Import Code-Signing Certificates (macOS)
+        if: runner.os == 'macOS'
+        uses: Apple-Actions/import-codesign-certs@v3
+        with:
+          p12-file-base64: ${{ secrets.APPLE_DEVELOPER_CERTIFICATE_P12_BASE64 }}
+          p12-password: ${{ secrets.APPLE_DEVELOPER_CERTIFICATE_PASSWORD }}
+      
+      - name: Sign macOS binary
+        if: runner.os == 'macOS'
+        run: |
+          codesign --force --sign "${{ secrets.APPLE_DEVELOPER_CERTIFICATE_ID }}" \
+            --options runtime \
+            --entitlements .github/entitlements.plist \
+            target/${{ matrix.target }}/release/kurpod_server
+          
+          # Verify the signature
+          codesign --verify --verbose target/${{ matrix.target }}/release/kurpod_server
+      
+      - name: Notarize macOS binary
+        if: runner.os == 'macOS'
+        run: |
+          # Create a zip file for notarization
+          cd target/${{ matrix.target }}/release
+          zip kurpod_server.zip kurpod_server
+          
+          # Submit for notarization
+          xcrun notarytool submit kurpod_server.zip \
+            --apple-id "${{ secrets.APPLE_ID }}" \
+            --password "${{ secrets.APPLE_APP_PASSWORD }}" \
+            --team-id "${{ secrets.APPLE_TEAM_ID }}" \
+            --wait
+          
+          # Extract the binary back
+          unzip -o kurpod_server.zip
+          rm kurpod_server.zip
+          
+          # Staple the notarization ticket (with retries)
+          echo "Attempting to staple notarization ticket..."
+          for i in {1..5}; do
+            if xcrun stapler staple kurpod_server; then
+              echo "Stapling successful on attempt $i"
+              xcrun stapler validate kurpod_server
+              break
+            else
+              echo "Stapling attempt $i failed, waiting 30 seconds..."
+              if [ $i -eq 5 ]; then
+                echo "Stapling failed after 5 attempts, but notarization was successful."
+                echo "The binary is notarized and will work, just without offline verification."
+              else
+                sleep 30
+              fi
+            fi
+          done
+
+      # Linux GPG signing
+      - name: Sign Linux binary with GPG
+        if: runner.os == 'Linux'
+        run: |
+          # Setup GPG environment for non-interactive signing
+          mkdir -p ~/.gnupg
+          chmod 700 ~/.gnupg
+          
+          # Import GPG key
+          echo "${{ secrets.GPG_PRIVATE_KEY }}" | gpg --batch --import
+          
+          # Configure GPG for loopback pinentry (non-interactive)
+          echo 'pinentry-mode loopback' >> ~/.gnupg/gpg.conf
+          echo 'allow-loopback-pinentry' >> ~/.gnupg/gpg-agent.conf
+          
+          # Kill any auto-started agent so it reloads the new config
+          gpgconf --kill gpg-agent || true
+          
+          # Sign the binary (creates .sig file)
+          gpg --batch --yes \
+              --pinentry-mode loopback \
+              --passphrase "${{ secrets.GPG_PASSPHRASE }}" \
+              --local-user "${{ secrets.GPG_KEY_ID }}" \
+              --armor --detach-sign \
+              "target/${{ matrix.target }}/release/kurpod_server"
+          
+          # Verify signature
+          gpg --verify "target/${{ matrix.target }}/release/kurpod_server.asc" "target/${{ matrix.target }}/release/kurpod_server"
+
+      - name: Prepare Windows release asset
+        if: runner.os == 'Windows'
+        run: |
+          mkdir release-assets
+          copy "target\${{ matrix.target }}\release\kurpod_server.exe" "release-assets\"
+          cd release-assets
+          
+          # Create README for Windows
+          echo "KURPOD Server v${{ needs.create-release.outputs.version }} - ${{ matrix.name }}" > README.txt
+          echo "" >> README.txt
+          echo "## Quick Start" >> README.txt
+          echo "1. Extract this zip file" >> README.txt
+          echo "2. Run: kurpod_server.exe" >> README.txt
+          echo "3. Open browser: http://localhost:3000" >> README.txt
+          echo "" >> README.txt
+          echo "## Options" >> README.txt
+          echo "kurpod_server.exe --help              # Show all options" >> README.txt
+          echo "kurpod_server.exe --port 8080         # Use custom port" >> README.txt
+          echo "kurpod_server.exe --blob data.blob    # Use custom storage file" >> README.txt
+          echo "" >> README.txt
+          echo "## Documentation" >> README.txt
+          echo "https://github.com/${{ github.repository }}" >> README.txt
+          echo "" >> README.txt
+          echo "## License" >> README.txt
+          echo "Licensed under AGPLv3" >> README.txt
+          
+          7z a "kurpod-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.zip" kurpod_server.exe README.txt
+          echo "ASSET_PATH=release-assets/kurpod-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.zip" >> $env:GITHUB_ENV
+          echo "ASSET_NAME=kurpod-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.zip" >> $env:GITHUB_ENV
+          echo "CONTENT_TYPE=application/zip" >> $env:GITHUB_ENV
+
+      - name: Prepare Unix release asset
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p release-assets
+          cp target/${{ matrix.target }}/release/kurpod_server release-assets/
+          
+          # Copy signature files for Linux
+          if [ "${{ runner.os }}" = "Linux" ] && [ -f "target/${{ matrix.target }}/release/kurpod_server.asc" ]; then
+            cp target/${{ matrix.target }}/release/kurpod_server.asc release-assets/
+          fi
+          
+          cd release-assets
+          
+          # Create README for the release
+          cat << EOF > README.txt
+          KURPOD Server v${{ needs.create-release.outputs.version }} - ${{ matrix.name }}
+          
+          ## Quick Start
+          1. Extract this archive
+          2. Run: ./kurpod_server
+          3. Open browser: http://localhost:3000
+          
+          ## Options
+          ./kurpod_server --help              # Show all options
+          ./kurpod_server --port 8080         # Use custom port
+          ./kurpod_server --blob data.blob    # Use custom storage file
+          
+          ## Documentation
+          https://github.com/${{ github.repository }}
+          
+          ## Support
+          - Report issues: https://github.com/${{ github.repository }}/issues
+          - User manual: https://github.com/${{ github.repository }}/blob/main/docs/USER_MANUAL.md
+          
+          ## License
+          Licensed under AGPLv3
+          EOF
+          
+          # Create the archive
+          if [ "${{ runner.os }}" = "Linux" ] && [ -f "kurpod_server.asc" ]; then
+            tar -czf kurpod-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.tar.gz kurpod_server kurpod_server.asc README.txt
+          else
+            tar -czf kurpod-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.tar.gz kurpod_server README.txt
+          fi
+          
+          # Generate checksums
+          if command -v sha256sum >/dev/null; then
+            sha256sum kurpod-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.tar.gz > kurpod-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.tar.gz.sha256
+          elif command -v shasum >/dev/null; then
+            shasum -a 256 kurpod-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.tar.gz > kurpod-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.tar.gz.sha256
+          fi
+          
+          echo "ASSET_PATH=release-assets/kurpod-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.tar.gz" >> $GITHUB_ENV
+          echo "CHECKSUM_PATH=release-assets/kurpod-v${{ needs.create-release.outputs.version }}-${{ matrix.name }}.tar.gz.sha256" >> $GITHUB_ENV
+
+      - name: Upload release binary
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: ${{ env.ASSET_PATH }}
+
+      - name: Upload checksum (Unix only)
+        if: runner.os != 'Windows'
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: ${{ env.CHECKSUM_PATH }}
+
+  create-checksums:
+    name: Create Combined Checksums
+    runs-on: ubuntu-22.04
+    needs: [create-release, build-and-upload]
+    if: (needs.create-release.outputs.release_created == 'true' || needs.create-release.outputs.release_created == '') && (github.event_name == 'push' || inputs.job == 'all' || inputs.job == 'binaries-only')
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download all release assets
+        uses: robinraju/release-downloader@v1.8
+        with:
+          tag: ${{ github.ref_name }}
+          fileName: "*"
+          out-file-path: "downloads"
+
+      - name: Generate combined checksums
+        run: |
+          cd downloads
+          
+          # Create combined SHA256 checksums file
+          cat << EOF > SHA256SUMS
+          # KURPOD Server v${{ needs.create-release.outputs.version }} - SHA256 Checksums
+          # Verify with: sha256sum -c SHA256SUMS
+          
+          EOF
+          
+          # Add checksums for all binary archives
+          for file in *.tar.gz *.zip; do
+            if [ -f "$file" ]; then
+              if command -v sha256sum >/dev/null; then
+                sha256sum "$file" >> SHA256SUMS
+              elif command -v shasum >/dev/null; then
+                shasum -a 256 "$file" >> SHA256SUMS
+              fi
+            fi
+          done
+          
+          # Create installation script
+          cat << 'EOF' > install.sh
+          #!/bin/bash
+          set -e
+          
+          # KURPOD Server Installation Script
+          VERSION="${{ needs.create-release.outputs.version }}"
+          REPO="${{ github.repository }}"
+          
+          # Detect platform
+          OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+          ARCH=$(uname -m)
+          
+          case $OS in
+            linux)
+              case $ARCH in
+                x86_64) PLATFORM="linux-x86_64" ;;
+                aarch64|arm64) PLATFORM="linux-arm64" ;;
+                *) echo "Unsupported architecture: $ARCH"; exit 1 ;;
+              esac
+              ARCHIVE="kurpod-v${VERSION}-${PLATFORM}.tar.gz"
+              ;;
+            darwin)
+              case $ARCH in
+                x86_64) PLATFORM="darwin-intel" ;;
+                arm64) PLATFORM="darwin-apple-silicon" ;;
+                *) echo "Unsupported architecture: $ARCH"; exit 1 ;;
+              esac
+              ARCHIVE="kurpod-v${VERSION}-${PLATFORM}.tar.gz"
+              ;;
+            *)
+              echo "Unsupported OS: $OS"
+              echo "Please download manually from: https://github.com/${REPO}/releases/tag/v${VERSION}"
+              exit 1
+              ;;
+          esac
+          
+          echo "🚀 Installing KURPOD Server v${VERSION} for ${OS}-${ARCH}"
+          echo "📦 Downloading ${ARCHIVE}..."
+          
+          # Download and extract
+          curl -sL "https://github.com/${REPO}/releases/download/v${VERSION}/${ARCHIVE}" | tar -xz
+          
+          # Make executable
+          chmod +x kurpod_server
+          
+          # Determine install location (prefer user install)
+          if [ -n "$HOME" ] && mkdir -p "$HOME/.local/bin" 2>/dev/null; then
+            INSTALL_DIR="$HOME/.local/bin"
+            mv kurpod_server "$INSTALL_DIR/"
+            echo "✅ KURPOD Server installed to $INSTALL_DIR/kurpod_server"
+            
+            # Add to PATH if not already there
+            if ! echo "$PATH" | grep -q "$HOME/.local/bin"; then
+              echo ""
+              echo "📝 Add to your shell profile to make 'kurpod_server' available globally:"
+              echo "   echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.bashrc"
+              echo "   echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.zshrc"
+              echo ""
+              echo "🔄 Or reload your shell: source ~/.bashrc (or ~/.zshrc)"
+            fi
+          elif [ -w "/usr/local/bin" ]; then
+            mv kurpod_server /usr/local/bin/
+            echo "✅ KURPOD Server installed to /usr/local/bin/kurpod_server"
+          else
+            echo "ℹ️  KURPOD Server extracted to current directory"
+            echo "   Run with: ./kurpod_server"
+            echo ""
+            echo "🔧 To install system-wide:"
+            echo "   sudo mv kurpod_server /usr/local/bin/"
+            echo ""
+            echo "🏠 To install for current user:"
+            echo "   mkdir -p ~/.local/bin && mv kurpod_server ~/.local/bin/"
+            echo "   export PATH=\"\$HOME/.local/bin:\$PATH\""
+          fi
+          
+          echo ""
+          echo "🎉 Installation complete!"
+          echo "📖 Usage: kurpod_server --help"
+          echo "🌐 Start server: kurpod_server"
+          echo "📱 Open browser: http://localhost:3000"
+          EOF
+          
+          chmod +x install.sh
+
+      - name: Upload combined checksums
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: |
+            downloads/SHA256SUMS
+            downloads/install.sh
+
+  docker-build:
+    name: Build and Push Docker Images
+    runs-on: ubuntu-22.04
+    needs: [create-release]
+    if: always() && ((github.event_name == 'push' && (needs.create-release.outputs.release_created == 'true' || needs.create-release.outputs.release_created == '')) || inputs.job == 'all' || inputs.job == 'docker-only')
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.15
+
+      - name: Build frontend
+        run: |
+          cd frontend
+          bun install --frozen-lockfile
+          bun run build
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=ref,event=tag
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: false          # skip SBOM generation for faster builds
+          # Disable GitHub Actions cache to avoid timeout issues with long builds
+          # cache-from: type=gha
+          # cache-to: type=gha,mode=max
+          build-args: |
+            VERSION=${{ needs.create-release.outputs.version }}

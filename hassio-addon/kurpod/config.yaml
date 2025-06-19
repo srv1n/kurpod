@@ -1,0 +1,26 @@
+name: "Kurpod"
+version: "1.0.1"
+slug: kurpod
+description: "Secure encrypted file storage server with plausible deniability"
+url: "https://github.com/srv1n/kurpod"
+arch:
+  - amd64
+  - aarch64
+startup: services
+boot: auto
+init: false
+ports:
+  "8080/tcp": 8080
+ingress: true
+map:
+  - type: media
+    read_only: false
+  - type: share
+    read_only: false
+options:
+  port: 8080
+  blob_file: "/share/kurpod/storage.blob"
+schema:
+  port: "int(1000,65535)"
+  blob_file: "str"
+image: "ghcr.io/srv1n/kurpod"

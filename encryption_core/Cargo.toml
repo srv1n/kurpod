@@ -1,0 +1,28 @@
+[package]
+name = "encryption_core"
+version = "0.1.2"
+edition = "2021"
+description = "Core encryption and blob storage logic"
+
+[dependencies]
+# Use versions from workspace if possible, or specify compatible ones
+anyhow = { workspace = true }
+argon2 = { workspace = true }
+bincode = { workspace = true }
+chacha20poly1305 = { workspace = true }
+mime_guess = { workspace = true }
+rand = { workspace = true }
+rand_core = { workspace = true }
+serde = { workspace = true }
+log = "0.4.21" # Explicitly depend on log facade
+env_logger = "0.11" # Added for logging implementation (can be swapped)
+aes-gcm = "0.10.3"
+thiserror = "1.0.61"
+hex = "0.4.3"
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+# Ensure features needed by the crate are enabled if using workspace versions
+# e.g., serde = { workspace = true, features = ["derive"] }
+
