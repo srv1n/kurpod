@@ -62,16 +62,16 @@ jobs:
           if [ $(git tag --list | wc -l) -eq 1 ]; then
             # First release - include all commits
             cat << EOF > changelog.md
-          ## 🎉 Initial Release v${{ steps.get_version.outputs.version }}
+          ##  Initial Release v${{ steps.get_version.outputs.version }}
 
           First release of KURPOD Server - a secure encrypted file storage solution!
 
-          ### ✨ Features
-          - **🔒 Military-grade encryption** using XChaCha20-Poly1305 + Argon2id
-          - **🎭 Plausible deniability** with dual volume support (standard + hidden)
-          - **🌐 Web interface** for easy file management from any device
-          - **📦 Single binary** - no complex installation required
-          - **🚀 Cross-platform** support (Linux, macOS, Windows)
+          ###  Features
+          - ** Military-grade encryption** using XChaCha20-Poly1305 + Argon2id
+          - ** Plausible deniability** with dual volume support (standard + hidden)
+          - ** Web interface** for easy file management from any device
+          - ** Single binary** - no complex installation required
+          - ** Cross-platform** support (Linux, macOS, Windows)
 
           ### 📥 Download Instructions
           1. Download the appropriate binary for your platform below
@@ -116,19 +116,19 @@ jobs:
             # Get previous tag
             PREV_TAG=$(git describe --tags --abbrev=0 HEAD~1)
             cat << EOF > changelog.md
-          ## 🚀 What's Changed in v${{ steps.get_version.outputs.version }}
+          ## What's Changed in v${{ steps.get_version.outputs.version }}
 
-          ### 📝 Changes Since $PREV_TAG
+          ### Changes Since $PREV_TAG
           EOF
             git log --oneline --pretty=format:"- %s" $PREV_TAG..HEAD | head -20 >> changelog.md
             cat << EOF >> changelog.md
 
-          ### 📥 Download Instructions
+          ### Download Instructions
           1. Download the appropriate binary for your platform below
           2. Extract: \`tar -xzf kurpod-*.tar.gz\` (or unzip \`*.zip\` for Windows)
           3. Run: \`./kurpod_server\` (or \`kurpod_server.exe\` on Windows)
 
-          ### 🐳 Docker
+          ### Docker
           \`\`\`bash
           docker run -p 3000:3000 ghcr.io/srv1n/kurpod:v${{ steps.get_version.outputs.version }}
           \`\`\`
@@ -521,8 +521,8 @@ jobs:
               ;;
           esac
           
-          echo "🚀 Installing KURPOD Server v${VERSION} for ${OS}-${ARCH}"
-          echo "📦 Downloading ${ARCHIVE}..."
+          echo "Installing KURPOD Server v${VERSION} for ${OS}-${ARCH}"
+          echo "Downloading ${ARCHIVE}..."
           
           # Download and extract
           curl -sL "https://github.com/${REPO}/releases/download/v${VERSION}/${ARCHIVE}" | tar -xz
@@ -539,20 +539,20 @@ jobs:
             # Add to PATH if not already there
             if ! echo "$PATH" | grep -q "$HOME/.local/bin"; then
               echo ""
-              echo "📝 Add to your shell profile to make 'kurpod_server' available globally:"
+              echo "   Add to your shell profile to make 'kurpod_server' available globally:"
               echo "   echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.bashrc"
               echo "   echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.zshrc"
               echo ""
-              echo "🔄 Or reload your shell: source ~/.bashrc (or ~/.zshrc)"
+              echo "   Or reload your shell: source ~/.bashrc (or ~/.zshrc)"
             fi
           elif [ -w "/usr/local/bin" ]; then
             mv kurpod_server /usr/local/bin/
             echo "✅ KURPOD Server installed to /usr/local/bin/kurpod_server"
           else
-            echo "ℹ️  KURPOD Server extracted to current directory"
+            echo "ℹ  KURPOD Server extracted to current directory"
             echo "   Run with: ./kurpod_server"
             echo ""
-            echo "🔧 To install system-wide:"
+            echo " To install system-wide:"
             echo "   sudo mv kurpod_server /usr/local/bin/"
             echo ""
             echo "🏠 To install for current user:"
@@ -561,10 +561,10 @@ jobs:
           fi
           
           echo ""
-          echo "🎉 Installation complete!"
-          echo "📖 Usage: kurpod_server --help"
-          echo "🌐 Start server: kurpod_server"
-          echo "📱 Open browser: http://localhost:3000"
+          echo "Installation complete!"
+          echo "Usage: kurpod_server --help"
+          echo "Start server: kurpod_server"
+          echo "Open browser: http://localhost:3000"
           EOF
           
           chmod +x install.sh
@@ -619,7 +619,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository }}
+          images: ghcr.io/${{ github.repository }}-server
           tags: |
             type=ref,event=tag
             type=semver,pattern={{version}}
