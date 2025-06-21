@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from './contexts/AuthContext.jsx';
-import { useToast } from './components/Toast';
+import { toast } from 'sonner';
+import { Toaster } from '@/components/ui/sonner';
 import { LoadingSpinner } from './components/LoadingSpinner';
 import { ThemeToggle } from './components/ThemeToggle';
 import { BlobSelector } from './components/BlobSelector';
@@ -9,8 +10,8 @@ import FileExplorer from './components/FileExplorer';
 import FileViewer from './components/FileViewer';
 import UploadManager from './components/UploadManager';
 import MobileSidebar from './components/MobileSidebar';
-import { MobileBreadcrumb } from './components/Breadcrumb';
-import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from './components/DropdownMenu';
+import { MobileBreadcrumb } from './components/MobileBreadcrumb';
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
 import { ArrowUpTrayIcon, FolderPlusIcon, Cog6ToothIcon, WrenchScrewdriverIcon } from '@heroicons/react/24/outline';
 import apiService from './services/api.js';
 
@@ -21,7 +22,6 @@ function UnlockScreen() {
     const [serverStatus, setServerStatus] = useState(null);
     const [showCreateModal, setShowCreateModal] = useState(false);
     const { login } = useAuth();
-    const { showToast } = useToast();
 
     // Fetch server status on mount
     useEffect(() => {
@@ -31,22 +31,22 @@ function UnlockScreen() {
                 setServerStatus(status);
             } catch (error) {
                 console.error('Failed to fetch server status:', error);
-                showToast('Failed to connect to server', 'error');
+                toast.error('Failed to connect to server');
             }
         };
         fetchStatus();
-    }, [showToast]);
+    }, []);
 
     const handleSubmit = async (e) => {
         e.preventDefault();
         if (!password.trim()) {
-            showToast('Please enter a password', 'error');
+            toast.error('Please enter a password');
             return;
         }
 
         // Check if blob selection is required
         if (serverStatus?.data?.mode === 'directory' && !selectedBlob) {
-            showToast('Please select a blob file', 'error');
+            toast.error('Please select a blob file');
             return;
         }
 
@@ -62,12 +62,12 @@ function UnlockScreen() {
 
             if (response.ok && data.success) {
                 login(data.data.token, data.data.volume_type);
-                showToast(`Unlocked ${data.data.volume_type} volume`, 'success');
+                toast.success(`Unlocked ${data.data.volume_type} volume`);
             } else {
                 throw new Error(data.message || 'Authentication failed');
             }
         } catch (error) {
-            showToast(error.message || 'Authentication failed', 'error');
+            toast.error(error.message || 'Authentication failed');
         } finally {
             setLoading(false);
         }
@@ -103,7 +103,7 @@ function UnlockScreen() {
                 <div className="text-center">
                     {/* App Icon */}
                     <div className="flex justify-center mb-8">
-                        <div className="neo-card p-6 rounded-full">
+                        <div className="bg-card border border-border p-6 rounded-full shadow-lg">
                             <img 
                                 src="/android-chrome-512x512.png" 
                                 alt="KURPOD Logo" 
@@ -112,14 +112,14 @@ function UnlockScreen() {
                         </div>
                     </div>
                     
-                    <h1 className="text-display text-foreground mb-3">
+                    <h1 className="text-4xl font-bold text-foreground mb-3">
                         KURPOD
                     </h1>
-                    <p className="text-body text-gray-500 mb-2">
+                    <p className="text-sm text-muted-foreground mb-2">
                         Encrypted File Storage
                     </p>
                     {serverStatus.data?.mode && (
-                        <p className="text-caption text-primary">
+                        <p className="text-xs text-primary">
                             {serverStatus.data.mode === 'single' ? 'Single File Mode' : 'Directory Mode'}
                         </p>
                     )}
@@ -138,7 +138,7 @@ function UnlockScreen() {
                         
                         {/* Password Input */}
                         <div>
-                            <label className="block text-body font-medium text-foreground mb-3">
+                            <label className="block text-sm font-medium text-foreground mb-3">
                                 Password
                             </label>
                             <input
@@ -146,7 +146,7 @@ function UnlockScreen() {
                                 required
                                 value={password}
                                 onChange={(e) => setPassword(e.target.value)}
-                                className="neo-input w-full px-5 py-4 text-body"
+                                className="flex h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                                 placeholder="Enter your password"
                                 disabled={loading}
                             />
@@ -157,7 +157,7 @@ function UnlockScreen() {
                         <button
                             type="submit"
                             disabled={loading || (serverStatus.data?.mode === 'directory' && !selectedBlob)}
-                            className="neo-button w-full py-4 px-6 text-body font-medium text-white bg-primary hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground shadow hover:bg-primary/90 h-11 px-8 w-full"
                         >
                             {loading ? (
                                 <div className="flex items-center justify-center space-x-2">
@@ -193,7 +193,6 @@ function Dashboard() {
     const [uploadType, setUploadType] = useState('single');
     const [refreshTrigger, setRefreshTrigger] = useState(0);
     const { logout, volumeType, apiCall } = useAuth();
-    const { showToast } = useToast();
 
     // Handle file preview
     const handleFilePreview = useCallback((file, filesInDirectory = []) => {
@@ -219,8 +218,8 @@ function Dashboard() {
     const handleUploadComplete = useCallback(() => {
         // Trigger FileExplorer refresh
         setRefreshTrigger(prev => prev + 1);
-        showToast('Upload completed successfully!', 'success');
-    }, [showToast]);
+        toast.success('Upload completed successfully!');
+    }, []);
 
     // Handle file delete
     const handleFileDelete = useCallback(async (file) => {
@@ -270,7 +269,7 @@ function Dashboard() {
 
             const data = await response.json();
             if (data.success) {
-                showToast('Storage compaction completed successfully', 'success');
+                toast.success('Storage compaction completed successfully');
             } else {
                 // Improved error handling to distinguish password vs process errors
                 if (data.message && (
@@ -279,23 +278,23 @@ function Dashboard() {
                     data.message.includes('invalid') ||
                     data.message.includes('incorrect')
                 )) {
-                    showToast('Incorrect password provided. Please check your passwords and try again.', 'error');
+                    toast.error('Incorrect password provided. Please check your passwords and try again.');
                 } else if (data.message && data.message.includes('permission')) {
-                    showToast('Permission denied. Check your authentication status.', 'error');
+                    toast.error('Permission denied. Check your authentication status.');
                 } else {
-                    showToast(`Compaction process failed: ${data.message || 'Unknown error'}`, 'error');
+                    toast.error(`Compaction process failed: ${data.message || 'Unknown error'}`);
                 }
             }
         } catch (error) {
             if (error.message === 'Authentication required') {
-                showToast('Session expired. Please log in again.', 'error');
+                toast.error('Session expired. Please log in again.');
             } else if (error.message.includes('network') || error.message.includes('fetch')) {
-                showToast('Network error. Please check your connection and try again.', 'error');
+                toast.error('Network error. Please check your connection and try again.');
             } else {
-                showToast(`Compaction failed: ${error.message}`, 'error');
+                toast.error(`Compaction failed: ${error.message}`);
             }
         }
-    }, [apiCall, showToast]);
+    }, [apiCall]);
 
     return (
         <div className="min-h-screen bg-background">
@@ -321,13 +320,13 @@ function Dashboard() {
             </div>
 
             {/* Desktop: Full header */}
-            <header className="hidden md:block neo-card border-b border-border">
+            <header className="hidden md:block bg-card border-b border-border shadow-sm">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                     <div className="flex justify-between items-center h-16">
                         <div className="flex items-center space-x-4">
                             {/* Logo and title */}
                             <div className="flex items-center space-x-3">
-                                <div className="neo-card p-2 rounded-full">
+                                <div className="bg-card border border-border p-2 rounded-full shadow-sm">
                                     <img 
                                         src="/android-chrome-192x192.png" 
                                         alt="KURPOD Logo" 
@@ -335,14 +334,10 @@ function Dashboard() {
                                     />
                                 </div>
                                 <div>
-                                    <h1 className="text-heading text-foreground">
+                                    <h1 className="text-xl font-semibold text-foreground">
                                         KURPOD
                                     </h1>
-                                    {volumeType && (
-                                        <p className="text-caption text-gray-500">
-                                            {volumeType} volume
-                                        </p>
-                                    )}
+                                    
                                 </div>
                             </div>
                         </div>
@@ -352,16 +347,16 @@ function Dashboard() {
                             <div className="hidden md:flex items-center space-x-2">
                                 <button
                                     onClick={() => handleUploadStart('single')}
-                                    className="neo-button px-4 py-2 flex items-center space-x-2 text-primary hover:text-primary-hover"
+                                    className="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-accent hover:text-accent-foreground h-9 px-4 py-2"
                                 >
-                                    <ArrowUpTrayIcon className="w-4 h-4" />
+                                    <ArrowUpTrayIcon className="w-4 h-4 mr-2" />
                                     <span>Upload</span>
                                 </button>
                                 <button
                                     onClick={() => handleUploadStart('folder')}
-                                    className="neo-button px-4 py-2 flex items-center space-x-2 text-primary hover:text-primary-hover"
+                                    className="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-accent hover:text-accent-foreground h-9 px-4 py-2"
                                 >
-                                    <FolderPlusIcon className="w-4 h-4" />
+                                    <FolderPlusIcon className="w-4 h-4 mr-2" />
                                     <span>Folder</span>
                                 </button>
                             </div>
@@ -369,15 +364,15 @@ function Dashboard() {
                             {/* Storage Management Dropdown */}
                             <DropdownMenu>
                                 <DropdownMenuTrigger asChild>
-                                    <button className="hidden lg:flex neo-button px-4 py-2 items-center space-x-2 text-gray-600 hover:text-gray-700">
-                                        <Cog6ToothIcon className="w-4 h-4" />
+                                    <button className="hidden lg:flex inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-accent hover:text-accent-foreground h-9 px-4 py-2">
+                                        <Cog6ToothIcon className="w-4 h-4 mr-2" />
                                         <span>Storage</span>
                                     </button>
                                 </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end" className="w-48 neo-card border border-border">
+                                <DropdownMenuContent align="end" className="w-48">
                                     <DropdownMenuItem 
                                         onClick={handleCompaction}
-                                        className="flex items-center space-x-2 cursor-pointer hover:bg-muted"
+                                        className="flex items-center space-x-2 cursor-pointer"
                                     >
                                         <WrenchScrewdriverIcon className="w-4 h-4" />
                                         <span>Compact Storage</span>
@@ -388,7 +383,7 @@ function Dashboard() {
                             <ThemeToggle />
                             <button
                                 onClick={logout}
-                                className="hidden md:block neo-button px-4 py-2 text-body text-red-600 hover:text-red-700"
+                                className="hidden md:block inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-destructive/10 text-destructive hover:text-destructive h-9 px-4 py-2"
                             >
                                 Logout
                             </button>
@@ -444,7 +439,12 @@ function App() {
         );
     }
 
-    return isAuthenticated ? <Dashboard /> : <UnlockScreen />;
+    return (
+        <>
+            {isAuthenticated ? <Dashboard /> : <UnlockScreen />}
+            <Toaster />
+        </>
+    );
 }
 
 export default App;

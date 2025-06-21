@@ -1,5 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ChevronDownIcon, PlusIcon } from '@heroicons/react/24/outline';
+import { Plus, ChevronDown } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import { Separator } from '@/components/ui/separator';
 
 export function BlobSelector({ 
     serverStatus, 
@@ -8,7 +14,6 @@ export function BlobSelector({
     onCreateNew,
     disabled = false 
 }) {
-    const [isOpen, setIsOpen] = useState(false);
     const hasInitialized = useRef(false);
 
     // Get stored blob preference - only run once when server status is available
@@ -36,16 +41,6 @@ export function BlobSelector({
         }
     }, [selectedBlob]);
 
-    const handleBlobSelect = (blob) => {
-        onBlobChange(blob);
-        setIsOpen(false);
-    };
-
-    const handleCreateNew = () => {
-        setIsOpen(false);
-        onCreateNew?.();
-    };
-
     if (!serverStatus?.data) {
         return null;
     }
@@ -56,20 +51,19 @@ export function BlobSelector({
     if (mode === 'single') {
         return (
             <div className="space-y-3">
-                <label className="block text-body font-medium text-foreground">
+                <Label className="text-sm font-medium">
                     Selected Blob File
-                </label>
+                </Label>
                 <div className="relative">
-                    <input
-                        type="text"
+                    <Input
                         value={blob_path?.split('/').pop() || 'Unknown'}
                         readOnly
-                        className="neo-inset w-full px-5 py-4 text-body opacity-75"
+                        className="pr-20 opacity-75"
                     />
-                    <div className="absolute inset-y-0 right-0 flex items-center pr-4">
-                        <span className="text-caption text-primary neo-card px-3 py-1">
+                    <div className="absolute inset-y-0 right-0 flex items-center pr-3">
+                        <Badge variant="secondary" className="text-xs">
                             Single File Mode
-                        </span>
+                        </Badge>
                     </div>
                 </div>
             </div>
@@ -80,65 +74,58 @@ export function BlobSelector({
     if (mode === 'directory' && available_blobs) {
         return (
             <div className="space-y-3">
-                <label className="block text-body font-medium text-foreground">
+                <Label className="text-sm font-medium">
                     Select Blob File
-                </label>
-                <div className="relative">
-                    <button
-                        type="button"
-                        onClick={() => !disabled && setIsOpen(!isOpen)}
+                </Label>
+                
+                <div className="space-y-2">
+                    <Select
+                        value={selectedBlob}
+                        onValueChange={onBlobChange}
                         disabled={disabled}
-                        className="neo-button w-full px-5 py-4 text-left text-body 
-                                 disabled:opacity-50 disabled:cursor-not-allowed
-                                 flex items-center justify-between"
                     >
-                        <span className={selectedBlob ? "text-foreground" : "text-gray-500"}>
-                            {selectedBlob || "Choose a blob file..."}
-                        </span>
-                        <ChevronDownIcon 
-                            className={`h-5 w-5 text-gray-400 transition-transform duration-200 ${
-                                isOpen ? 'transform rotate-180' : ''
-                            }`} 
-                        />
-                    </button>
-
-                    {isOpen && (
-                        <div className="absolute z-10 w-full mt-2 neo-card border border-border max-h-60 overflow-auto animate-fadeIn">
+                        <SelectTrigger className="w-full">
+                            <SelectValue placeholder="Choose a blob file..." />
+                        </SelectTrigger>
+                        <SelectContent>
                             {/* Create new option */}
-                            <button
-                                type="button"
-                                onClick={handleCreateNew}
-                                className="w-full px-5 py-4 text-left hover:bg-card-hover 
-                                         flex items-center space-x-3 text-primary border-b border-border"
-                            >
-                                <PlusIcon className="h-4 w-4" />
-                                <span className="text-body font-medium">Create New Blob</span>
-                            </button>
-
-                            {/* Available blobs */}
-                            {available_blobs.length > 0 ? (
-                                available_blobs.map((blob) => (
-                                    <button
-                                        key={blob}
-                                        type="button"
-                                        onClick={() => handleBlobSelect(blob)}
-                                        className={`w-full px-5 py-4 text-left hover:bg-card-hover text-body transition-colors duration-200
-                                                   ${selectedBlob === blob ? 'neo-inset text-primary font-medium' : ''}`}
-                                    >
-                                        {blob}
-                                    </button>
-                                ))
-                            ) : (
-                                <div className="px-5 py-4 text-gray-500 italic text-body">
+                            <div className="p-1">
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={(e) => {
+                                        e.preventDefault();
+                                        onCreateNew?.();
+                                    }}
+                                    className="w-full justify-start text-primary hover:text-primary hover:bg-primary/10"
+                                >
+                                    <Plus className="h-4 w-4 mr-2" />
+                                    Create New Blob
+                                </Button>
+                            </div>
+                            
+                            {available_blobs.length > 0 && (
+                                <>
+                                    <Separator />
+                                    {available_blobs.map((blob) => (
+                                        <SelectItem key={blob} value={blob}>
+                                            {blob}
+                                        </SelectItem>
+                                    ))}
+                                </>
+                            )}
+                            
+                            {available_blobs.length === 0 && (
+                                <div className="px-2 py-1.5 text-sm text-muted-foreground">
                                     No blob files found in directory
                                 </div>
                             )}
-                        </div>
-                    )}
+                        </SelectContent>
+                    </Select>
                 </div>
 
                 {/* Helper text */}
-                <p className="text-caption text-gray-500">
+                <p className="text-xs text-muted-foreground">
                     {available_blobs.length > 0 
                         ? `${available_blobs.length} blob file(s) available in directory`
                         : "No blob files found. Create a new one to get started."

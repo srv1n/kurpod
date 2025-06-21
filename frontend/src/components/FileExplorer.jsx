@@ -1,17 +1,22 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { useToast } from './Toast';
+import { toast } from 'sonner';
 import { FileGridIcon, ListIcon } from './FileTypeIcon';
-import Breadcrumb from './Breadcrumb';
+import BreadcrumbNavigation from './BreadcrumbNavigation';
 import { LoadingSpinner } from './LoadingSpinner';
 import {
-    FolderIcon,
-    Squares2X2Icon,
-    ListBulletIcon,
-    ArrowUpTrayIcon,
-    TrashIcon,
-    FolderPlusIcon
-} from '@heroicons/react/24/outline';
+    Folder,
+    Grid3X3,
+    List,
+    Upload,
+    Trash2,
+    FolderPlus
+} from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { cn } from '@/lib/utils';
 
 const FileExplorer = ({ 
     onFilePreview,
@@ -26,7 +31,6 @@ const FileExplorer = ({
     const [viewMode, setViewMode] = useState('grid'); // 'grid' or 'list'
     const [selectedFiles, setSelectedFiles] = useState(new Set());
     const { apiCall } = useAuth();
-    const { showToast } = useToast();
 
     // Load files for current path
     const loadFiles = useCallback(async (path = '') => {
@@ -44,11 +48,11 @@ const FileExplorer = ({
                 throw new Error(data.message || 'Failed to load files');
             }
         } catch (error) {
-            showToast(error.message || 'Failed to load files', 'error');
+            toast.error(error.message || 'Failed to load files');
         } finally {
             setLoading(false);
         }
-    }, [apiCall, showToast]);
+    }, [apiCall]);
 
     // Process files to create virtual folder structure
     const processFilesForDisplay = (allFiles, currentPath) => {
@@ -174,14 +178,14 @@ const FileExplorer = ({
             
             // Show appropriate toast messages
             if (successCount > 0) {
-                showToast(`Deleted ${successCount} item${successCount > 1 ? 's' : ''}`, 'success');
+                toast.success(`Deleted ${successCount} item${successCount > 1 ? 's' : ''}`);
             }
             if (errors.length > 0) {
-                showToast(`Failed to delete ${errors.length} item${errors.length > 1 ? 's' : ''}`, 'error');
+                toast.error(`Failed to delete ${errors.length} item${errors.length > 1 ? 's' : ''}`);
                 console.error('Deletion errors:', errors);
             }
         } catch (error) {
-            showToast('Failed to delete files', 'error');
+            toast.error('Failed to delete files');
             console.error('Bulk delete error:', error);
             // Still refresh the list in case some deletions succeeded
             setSelectedFiles(new Set());
@@ -216,70 +220,60 @@ const FileExplorer = ({
 
     return (
         <div className={`flex flex-col h-full ${className}`}>
-            {/* Header with controls */}
-            <div className="neo-card p-3 md:p-4 mb-4 md:mb-6">
-                {/* Mobile layout - minimal */}
-                <div className="md:hidden">
+            {/* Mobile delete button - only show when files are selected */}
+            {selectedFiles.size > 0 && (
+                <Card className="mb-4 md:hidden">
+                    <CardContent className="p-2">
+                        <div className="flex items-center justify-center">
+                            <Button
+                                onClick={handleDeleteSelected}
+                                variant="destructive"
+                                size="sm"
+                                className="flex items-center gap-2"
+                            >
+                                <Trash2 className="h-4 w-4" />
+                                <span>Delete ({selectedFiles.size})</span>
+                            </Button>
+                        </div>
+                    </CardContent>
+                </Card>
+            )}
+
+            {/* Desktop layout - with breadcrumb and view toggle */}
+            <Card className="hidden md:block mb-6">
+                <CardContent className="p-2">
                     <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-2">
+                        <div className="flex items-center space-x-4">
+                            <BreadcrumbNavigation 
+                                currentPath={currentPath}
+                                onNavigate={handleNavigate}
+                            />
                             {/* Delete selected */}
                             {selectedFiles.size > 0 && (
-                                <button
+                                <Button
                                     onClick={handleDeleteSelected}
-                                    className="neo-button px-3 py-2 flex items-center space-x-2 text-red-600 hover:text-red-700"
+                                    variant="destructive"
+                                    size="sm"
+                                    className="flex items-center gap-2"
                                 >
-                                    <TrashIcon className="w-4 h-4" />
+                                    <Trash2 className="h-4 w-4" />
                                     <span>Delete ({selectedFiles.size})</span>
-                                </button>
+                                </Button>
                             )}
                         </div>
-                    </div>
-                </div>
 
-                {/* Desktop layout - with breadcrumb and view toggle */}
-                <div className="hidden md:flex items-center justify-between">
-                    <div className="flex items-center space-x-4">
-                        <Breadcrumb 
-                            currentPath={currentPath}
-                            onNavigate={handleNavigate}
-                        />
-                        {/* Delete selected */}
-                        {selectedFiles.size > 0 && (
-                            <button
-                                onClick={handleDeleteSelected}
-                                className="neo-button px-4 py-2 flex items-center space-x-2 text-red-600 hover:text-red-700"
-                            >
-                                <TrashIcon className="w-4 h-4" />
-                                <span>Delete ({selectedFiles.size})</span>
-                            </button>
-                        )}
+                        {/* View mode toggle */}
+                        <ToggleGroup type="single" value={viewMode} onValueChange={setViewMode}>
+                            <ToggleGroupItem value="grid" aria-label="Grid view">
+                                <Grid3X3 className="h-4 w-4" />
+                            </ToggleGroupItem>
+                            <ToggleGroupItem value="list" aria-label="List view">
+                                <List className="h-4 w-4" />
+                            </ToggleGroupItem>
+                        </ToggleGroup>
                     </div>
-
-                    {/* View mode toggle */}
-                    <div className="flex items-center space-x-1 neo-inset p-1 rounded-lg">
-                        <button
-                            onClick={() => setViewMode('grid')}
-                            className={`p-2 rounded-lg transition-all duration-200 ${
-                                viewMode === 'grid' 
-                                    ? 'neo-button text-foreground' 
-                                    : 'text-gray-500 hover:text-foreground'
-                            }`}
-                        >
-                            <Squares2X2Icon className="w-4 h-4" />
-                        </button>
-                        <button
-                            onClick={() => setViewMode('list')}
-                            className={`p-2 rounded-lg transition-all duration-200 ${
-                                viewMode === 'list' 
-                                    ? 'neo-button text-foreground' 
-                                    : 'text-gray-500 hover:text-foreground'
-                            }`}
-                        >
-                            <ListBulletIcon className="w-4 h-4" />
-                        </button>
-                    </div>
-                </div>
-            </div>
+                </CardContent>
+            </Card>
 
             {/* File display area */}
             <div className="flex-1 overflow-auto">
@@ -310,12 +304,12 @@ const FileExplorer = ({
 // Empty state component
 const EmptyState = () => (
     <div className="flex flex-col items-center justify-center h-64 text-center space-y-6">
-        <div className="neo-card p-8 rounded-full">
-            <FolderIcon className="w-16 h-16 text-gray-400" />
-        </div>
+        <Card className="p-8 w-fit">
+            <Folder className="h-16 w-16 text-muted-foreground" />
+        </Card>
         <div>
-            <h3 className="text-heading text-foreground mb-2">No files yet</h3>
-            <p className="text-body text-gray-500">
+            <h3 className="text-lg font-semibold text-foreground mb-2">No files yet</h3>
+            <p className="text-sm text-muted-foreground">
                 Use the upload buttons in the header to get started
             </p>
         </div>
@@ -341,17 +335,16 @@ const GridView = ({ files, selectedFiles, onItemClick, onItemSelect, formatSize 
 // List view component
 const ListView = ({ files, selectedFiles, onItemClick, onItemSelect, formatSize }) => (
     <div className="p-4">
-        <div className="neo-card overflow-hidden">
+        <Card>
             <div className="overflow-x-auto">
                 <table className="w-full">
-                    <thead className="bg-muted text-left">
+                    <thead className="bg-muted/50">
                         <tr>
-                            <th className="px-4 py-3 text-caption uppercase tracking-wider">
-                                <input
-                                    type="checkbox"
-                                    className="rounded"
-                                    onChange={(e) => {
-                                        if (e.target.checked) {
+                            <th className="px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                                <Checkbox
+                                    checked={files.length > 0 && files.every(file => selectedFiles.has(file.path))}
+                                    onCheckedChange={(checked) => {
+                                        if (checked) {
                                             files.forEach(file => onItemSelect(file, true));
                                         } else {
                                             files.forEach(file => onItemSelect(file, false));
@@ -359,8 +352,8 @@ const ListView = ({ files, selectedFiles, onItemClick, onItemSelect, formatSize 
                                     }}
                                 />
                             </th>
-                            <th className="px-4 py-3 text-caption uppercase tracking-wider">Name</th>
-                            <th className="px-4 py-3 text-caption uppercase tracking-wider hidden md:table-cell">Size</th>
+                            <th className="px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Name</th>
+                            <th className="px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider hidden md:table-cell">Size</th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-border">
@@ -372,38 +365,35 @@ const ListView = ({ files, selectedFiles, onItemClick, onItemSelect, formatSize 
                                 onClick={() => onItemClick(item)}
                                 onSelect={(selected) => onItemSelect(item, selected)}
                                 formatSize={formatSize}
-                                formatDate={formatDate}
                             />
                         ))}
                     </tbody>
                 </table>
             </div>
-        </div>
+        </Card>
     </div>
 );
 
 // Grid item component
 const FileGridItem = ({ item, isSelected, onClick, onSelect, formatSize }) => (
-    <div className="animate-fadeIn">
-        <div
-            className={`
-                neo-card p-4 transition-all duration-200 relative
-                ${isSelected ? 'ring-2 ring-primary' : ''}
-            `}
+    <div className="animate-in fade-in-50">
+        <Card
+            className={cn(
+                "p-4 transition-all duration-200 relative hover:shadow-md",
+                isSelected && "ring-2 ring-primary"
+            )}
         >
             {/* Selection checkbox - larger clickable area */}
             <div 
-                className="absolute top-2 left-2 p-1 cursor-pointer z-10"
+                className="absolute top-3 left-3 cursor-pointer z-10"
                 onClick={(e) => {
                     e.stopPropagation();
                     onSelect(!isSelected);
                 }}
             >
-                <input
-                    type="checkbox"
+                <Checkbox
                     checked={isSelected}
-                    onChange={() => {}} // Controlled by parent click
-                    className="rounded pointer-events-none"
+                    onCheckedChange={onSelect}
                 />
             </div>
 
@@ -418,42 +408,40 @@ const FileGridItem = ({ item, isSelected, onClick, onSelect, formatSize }) => (
                 />
                 
                 {/* File name */}
-                <h3 className="text-body font-medium text-foreground truncate w-full mt-2">
+                <h3 className="text-sm font-medium text-foreground truncate w-full mt-2">
                     {item.displayName}
                 </h3>
                 
                 {/* File size */}
                 {item.type === 'file' && (
-                    <p className="text-caption text-gray-500 mt-1">
+                    <p className="text-xs text-muted-foreground mt-1">
                         {formatSize(item.size)}
                     </p>
                 )}
             </div>
-        </div>
+        </Card>
     </div>
 );
 
 // List item component
 const FileListItem = ({ item, isSelected, onClick, onSelect, formatSize }) => (
     <tr 
-        className={`
-            hover:bg-muted transition-colors duration-200
-            ${isSelected ? 'bg-primary/10' : ''}
-        `}
+        className={cn(
+            "hover:bg-muted/50 transition-colors duration-200",
+            isSelected && "bg-primary/10"
+        )}
     >
         <td className="px-4 py-3">
             <div 
-                className="cursor-pointer p-1 -m-1"
+                className="cursor-pointer"
                 onClick={(e) => {
                     e.stopPropagation();
                     onSelect(!isSelected);
                 }}
             >
-                <input
-                    type="checkbox"
+                <Checkbox
                     checked={isSelected}
-                    onChange={() => {}} // Controlled by parent click
-                    className="rounded pointer-events-none"
+                    onCheckedChange={onSelect}
                 />
             </div>
         </td>
@@ -463,12 +451,12 @@ const FileListItem = ({ item, isSelected, onClick, onSelect, formatSize }) => (
                     filename={item.displayName}
                     isFolder={item.type === 'folder'}
                 />
-                <span className="text-body font-medium text-foreground truncate">
+                <span className="text-sm font-medium text-foreground truncate">
                     {item.displayName}
                 </span>
             </div>
         </td>
-        <td className="px-4 py-3 text-body text-gray-500 hidden md:table-cell cursor-pointer" onClick={onClick}>
+        <td className="px-4 py-3 text-sm text-muted-foreground hidden md:table-cell cursor-pointer" onClick={onClick}>
             {item.type === 'file' ? formatSize(item.size) : '—'}
         </td>
     </tr>

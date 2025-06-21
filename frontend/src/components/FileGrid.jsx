@@ -1,5 +1,6 @@
 import React from 'react';
-import { cn } from '../lib/utils';
+import { cn } from '@/lib/utils';
+import { Card } from '@/components/ui/card';
 
 export function FileGrid({ children, className }) {
     return (
@@ -21,15 +22,15 @@ export function FileGrid({ children, className }) {
 
 export function FileGridItem({ children, className }) {
     return (
-        <div
+        <Card
             className={cn(
-                'group relative rounded-lg border bg-card p-4',
-                'hover:shadow-lg hover:border-gray-300 dark:hover:border-gray-600',
+                'group relative p-4',
+                'hover:shadow-lg',
                 'transition-all duration-200',
                 className
             )}
         >
             {children}
-        </div>
+        </Card>
     );
 }

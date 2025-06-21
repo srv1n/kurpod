@@ -1,14 +1,17 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { 
-    PlayIcon, 
-    PauseIcon, 
-    SpeakerWaveIcon, 
-    SpeakerXMarkIcon,
-    ArrowsPointingOutIcon,
-    ArrowsPointingInIcon,
-    Cog6ToothIcon
-} from '@heroicons/react/24/solid';
-import { cn } from '../lib/utils';
+    Play, 
+    Pause, 
+    Volume2, 
+    VolumeX,
+    Maximize,
+    Minimize,
+    Settings
+} from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
+import { Slider } from '@/components/ui/slider';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 
 export function VideoPlayer({ src, type, poster, onClose }) {
     const videoRef = useRef(null);
@@ -239,7 +242,7 @@ export function VideoPlayer({ src, type, poster, onClose }) {
             {/* Loading spinner */}
             {isLoading && (
                 <div className="absolute inset-0 flex items-center justify-center bg-black/50">
-                    <div className="animate-spin rounded-full h-12 w-12 border-4 border-white border-t-transparent" />
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white"></div>
                 </div>
             )}
 
@@ -274,16 +277,18 @@ export function VideoPlayer({ src, type, poster, onClose }) {
                 <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-4">
                         {/* Play/Pause */}
-                        <button
+                        <Button
                             onClick={togglePlay}
-                            className="p-2 rounded-full bg-white/10 backdrop-blur text-white hover:bg-white/20 transition-colors"
+                            variant="ghost"
+                            size="icon"
+                            className="p-2 rounded-full bg-white/10 backdrop-blur text-white hover:bg-white/20"
                         >
                             {isPlaying ? (
-                                <PauseIcon className="h-6 w-6" />
+                                <Pause className="h-6 w-6" />
                             ) : (
-                                <PlayIcon className="h-6 w-6" />
+                                <Play className="h-6 w-6" />
                             )}
-                        </button>
+                        </Button>
 
                         {/* Time display */}
                         <div className="text-white text-sm font-mono">
@@ -292,74 +297,82 @@ export function VideoPlayer({ src, type, poster, onClose }) {
 
                         {/* Volume controls */}
                         <div className="flex items-center space-x-2">
-                            <button
+                            <Button
                                 onClick={toggleMute}
+                                variant="ghost"
+                                size="icon"
                                 className="p-1 text-white hover:text-gray-300"
                             >
                                 {isMuted || volume === 0 ? (
-                                    <SpeakerXMarkIcon className="h-5 w-5" />
+                                    <VolumeX className="h-5 w-5" />
                                 ) : (
-                                    <SpeakerWaveIcon className="h-5 w-5" />
+                                    <Volume2 className="h-5 w-5" />
                                 )}
-                            </button>
-                            <input
-                                type="range"
-                                min="0"
-                                max="1"
-                                step="0.05"
-                                value={isMuted ? 0 : volume}
-                                onChange={handleVolumeChange}
-                                className="w-24 h-1 bg-white/20 rounded-full appearance-none cursor-pointer
-                                         [&::-webkit-slider-thumb]:appearance-none
-                                         [&::-webkit-slider-thumb]:w-3
-                                         [&::-webkit-slider-thumb]:h-3
-                                         [&::-webkit-slider-thumb]:bg-white
-                                         [&::-webkit-slider-thumb]:rounded-full
-                                         [&::-webkit-slider-thumb]:cursor-pointer"
+                            </Button>
+                            <Slider
+                                value={[isMuted ? 0 : volume]}
+                                onValueChange={(value) => {
+                                    const newVolume = value[0];
+                                    setVolume(newVolume);
+                                    if (videoRef.current) {
+                                        videoRef.current.volume = newVolume;
+                                        if (newVolume === 0) {
+                                            setIsMuted(true);
+                                        } else if (isMuted) {
+                                            setIsMuted(false);
+                                        }
+                                    }
+                                }}
+                                max={1}
+                                step={0.05}
+                                className="w-24"
                             />
                         </div>
                     </div>
 
                     <div className="flex items-center space-x-2">
                         {/* Settings */}
-                        <div className="relative">
-                            <button
-                                onClick={() => setShowSettings(!showSettings)}
-                                className="p-2 text-white hover:text-gray-300"
-                            >
-                                <Cog6ToothIcon className="h-5 w-5" />
-                            </button>
-                            
-                            {showSettings && (
-                                <div className="absolute bottom-full right-0 mb-2 bg-gray-900 rounded-lg shadow-lg p-2 min-w-[120px]">
-                                    <div className="text-xs text-gray-400 px-2 py-1">Playback Speed</div>
+                        <Popover open={showSettings} onOpenChange={setShowSettings}>
+                            <PopoverTrigger asChild>
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="p-2 text-white hover:text-gray-300"
+                                >
+                                    <Settings className="h-5 w-5" />
+                                </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-auto p-2 bg-gray-900 border-gray-700">
+                                <div className="text-xs text-gray-400 px-2 py-1">Playback Speed</div>
+                                <div className="space-y-1">
                                     {[0.5, 0.75, 1, 1.25, 1.5, 2].map(rate => (
-                                        <button
+                                        <Button
                                             key={rate}
                                             onClick={() => handlePlaybackRateChange(rate)}
-                                            className={cn(
-                                                'block w-full text-left px-2 py-1 text-sm text-white hover:bg-gray-800 rounded',
-                                                playbackRate === rate && 'bg-gray-800'
-                                            )}
+                                            variant={playbackRate === rate ? "default" : "ghost"}
+                                            size="sm"
+                                            className="w-full justify-start text-white hover:bg-gray-800"
                                         >
                                             {rate}x
-                                        </button>
+                                        </Button>
                                     ))}
                                 </div>
-                            )}
-                        </div>
+                            </PopoverContent>
+                        </Popover>
 
                         {/* Fullscreen */}
-                        <button
+                        <Button
                             onClick={toggleFullscreen}
+                            variant="ghost"
+                            size="icon"
                             className="p-2 text-white hover:text-gray-300"
                         >
                             {isFullscreen ? (
-                                <ArrowsPointingInIcon className="h-5 w-5" />
+                                <Minimize className="h-5 w-5" />
                             ) : (
-                                <ArrowsPointingOutIcon className="h-5 w-5" />
+                                <Maximize className="h-5 w-5" />
                             )}
-                        </button>
+                        </Button>
                     </div>
                 </div>
             </div>

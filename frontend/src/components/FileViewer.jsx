@@ -1,21 +1,24 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { useToast } from './Toast';
+import { toast } from 'sonner';
 import {
-    XMarkIcon,
-    ChevronLeftIcon,
-    ChevronRightIcon,
-    MagnifyingGlassPlusIcon,
-    MagnifyingGlassMinusIcon,
-    ArrowsPointingOutIcon,
-    ArrowsPointingInIcon,
-    ArrowDownTrayIcon,
-    TrashIcon,
-    PlayIcon,
-    PauseIcon,
-    SpeakerWaveIcon,
-    SpeakerXMarkIcon
-} from '@heroicons/react/24/outline';
+    X,
+    ChevronLeft,
+    ChevronRight,
+    ZoomIn,
+    ZoomOut,
+    Maximize,
+    Minimize,
+    Download,
+    Trash2,
+    Play,
+    Pause,
+    Volume2,
+    VolumeX
+} from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { LoadingSpinner } from './LoadingSpinner';
 
 const FileViewer = ({ 
     file, 
@@ -58,7 +61,15 @@ const FileViewer = ({
     const contentRef = useRef(null);
     const mediaRef = useRef(null);
     const { apiCall } = useAuth();
-    const { showToast } = useToast();
+    // Removed showToast hook since we're using sonner
+
+    // Helper function to format time for audio player
+    const formatTime = (seconds) => {
+        if (!seconds || isNaN(seconds)) return '0:00';
+        const mins = Math.floor(seconds / 60);
+        const secs = Math.floor(seconds % 60);
+        return `${mins}:${secs.toString().padStart(2, '0')}`;
+    };
 
     // Detect mobile device
     useEffect(() => {
@@ -145,7 +156,7 @@ const FileViewer = ({
         } catch (err) {
             if (!targetFile) {
                 setError(err.message);
-                showToast('Failed to load file', 'error');
+                toast.error('Failed to load file');
             }
             return null;
         } finally {
@@ -153,7 +164,7 @@ const FileViewer = ({
                 setIsLoading(false);
             }
         }
-    }, [file, apiCall, showToast, preloadCache]);
+    }, [file, apiCall, preloadCache]);
 
     // Preload adjacent files
     const preloadAdjacentFiles = useCallback(async () => {
@@ -323,11 +334,11 @@ const FileViewer = ({
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
-            showToast('Download started', 'success');
+            toast.success('Download started');
         } catch (err) {
-            showToast('Failed to download file', 'error');
+            toast.error('Failed to download file');
         }
-    }, [file, fileUrl, showToast]);
+    }, [file, fileUrl]);
 
     // Delete file
     const handleDelete = useCallback(async () => {
@@ -338,24 +349,29 @@ const FileViewer = ({
         try {
             await onDelete?.(file);
             onClose();
-            showToast('File deleted', 'success');
+            toast.success('File deleted');
             // Notify parent to refresh file list
             onFileDeleted?.();
         } catch (err) {
-            showToast('Failed to delete file', 'error');
+            toast.error('Failed to delete file');
         }
-    }, [file, onDelete, onClose, showToast, onFileDeleted]);
+    }, [file, onDelete, onClose, onFileDeleted]);
 
     // Media controls
-    const togglePlay = useCallback(() => {
-        if (mediaRef.current) {
-            if (isPlaying) {
-                mediaRef.current.pause();
+    const togglePlay = useCallback(async () => {
+        if (!mediaRef.current) return;
+        
+        try {
+            if (mediaRef.current.paused) {
+                await mediaRef.current.play();
             } else {
-                mediaRef.current.play();
+                mediaRef.current.pause();
             }
+        } catch (error) {
+            console.error('Error toggling play state:', error);
+            toast.error('Failed to play media');
         }
-    }, [isPlaying]);
+    }, []);
 
     const toggleMute = useCallback(() => {
         if (mediaRef.current) {
@@ -449,8 +465,8 @@ const FileViewer = ({
         
         // Check for tap (minimal movement)
         if (horizontalMovement < 10 && verticalMovement < 10) {
-            // Handle tap to toggle controls in fullscreen mode
-            if (isFullscreen && isMobile) {
+            // Handle tap to toggle controls (works in both fullscreen and normal mode)
+            if (isMobile) {
                 setShowControls(prev => !prev);
                 setSwipeToClose({ startY: 0, currentY: 0, isDismissing: false });
                 setTouchStart(null);
@@ -508,7 +524,12 @@ const FileViewer = ({
                 hideTimeout = setTimeout(() => setShowControls(false), 3000);
             }
         } else {
-            setShowControls(true);
+            // In normal mode, always show controls on desktop, show by default on mobile
+            if (isMobile) {
+                setShowControls(true);
+            } else {
+                setShowControls(true);
+            }
         }
 
         return () => {
@@ -559,7 +580,9 @@ const FileViewer = ({
                     break;
                 case ' ':
                     e.preventDefault();
-                    togglePlay();
+                    if (fileType === 'video' || fileType === 'audio') {
+                        togglePlay();
+                    }
                     break;
                 case 'f':
                 case 'F':
@@ -599,6 +622,11 @@ const FileViewer = ({
             setZoom(1);
             setPan({ x: 0, y: 0 });
             
+            // Reset media state for new files
+            setIsPlaying(false);
+            setCurrentTime(0);
+            setDuration(0);
+            
             // Start preloading adjacent files after a short delay
             const preloadTimer = setTimeout(() => {
                 preloadAdjacentFiles();
@@ -607,6 +635,15 @@ const FileViewer = ({
             return () => clearTimeout(preloadTimer);
         }
     }, [file, isOpen, loadFile, preloadAdjacentFiles]);
+
+    // Initialize media volume and properties
+    // useEffect(() => {
+    //     if (mediaRef.current && fileUrl && (fileType === 'video' || fileType === 'audio')) {
+    //         const media = mediaRef.current;
+    //         media.volume = volume;
+    //         media.muted = isMuted;
+    //     }
+    // }, [fileUrl, fileType, volume, isMuted]);
 
     // Cleanup all cached URLs when component unmounts or closes
     useEffect(() => {
@@ -628,6 +665,9 @@ const FileViewer = ({
 
     const fileType = getFileType(file.path, file.mimeType);
 
+    // Calculate volume percentage to avoid complex inline expressions that confuse the minifier
+    const volumePercent = (isMuted ? 0 : volume) * 100;
+
     return (
         <div 
             ref={viewerRef}
@@ -637,7 +677,14 @@ const FileViewer = ({
             `}
         >
             {/* Header - completely redesigned for mobile responsiveness */}
-            <div className={`bg-black/90 text-white relative z-30 ${isFullscreen ? 'hidden' : ''}`} style={{ display: isFullscreen ? 'none' : 'block' }}>
+            <div 
+                className={`bg-black/90 text-white relative z-30 transition-all duration-300 ${
+                    isFullscreen ? 'hidden' : ''
+                } ${
+                    isMobile && !showControls ? 'opacity-0 pointer-events-none -translate-y-full' : 'opacity-100'
+                }`} 
+                style={{ display: isFullscreen ? 'none' : 'block' }}
+            >
                     {/* Mobile: Ultra-minimal header */}
                     <div className="md:hidden">
                         {/* Top row: Close button always visible */}
@@ -648,13 +695,15 @@ const FileViewer = ({
                                 </h2>
                             </div>
                             
-                            <button
+                            <Button
                                 onClick={onClose}
-                                className="flex-shrink-0 p-2 rounded-lg bg-white/20 hover:bg-white/30 touch-manipulation"
+                                variant="ghost"
+                                size="icon"
+                                className="flex-shrink-0 bg-white/20 hover:bg-white/30 text-white"
                                 style={{ minWidth: '44px', minHeight: '44px' }}
                             >
-                                <XMarkIcon className="w-5 h-5 mx-auto" />
-                            </button>
+                                <X className="h-5 w-5" />
+                            </Button>
                         </div>
                         
                         {/* Bottom row: Controls */}
@@ -665,43 +714,53 @@ const FileViewer = ({
                                 </span>
                                 {allFiles.length > 1 && (
                                     <>
-                                        <button
+                                        <Button
                                             onClick={navigatePrevious}
                                             disabled={!hasPrevious}
-                                            className="p-1.5 rounded bg-white/10 hover:bg-white/20 disabled:opacity-30 touch-manipulation"
+                                            variant="ghost"
+                                            size="sm"
+                                            className="bg-white/10 hover:bg-white/20 text-white disabled:opacity-30"
                                         >
-                                            <ChevronLeftIcon className="w-4 h-4" />
-                                        </button>
-                                        <button
+                                            <ChevronLeft className="h-4 w-4" />
+                                        </Button>
+                                        <Button
                                             onClick={navigateNext}
                                             disabled={!hasNext}
-                                            className="p-1.5 rounded bg-white/10 hover:bg-white/20 disabled:opacity-30 touch-manipulation"
+                                            variant="ghost"
+                                            size="sm"
+                                            className="bg-white/10 hover:bg-white/20 text-white disabled:opacity-30"
                                         >
-                                            <ChevronRightIcon className="w-4 h-4" />
-                                        </button>
+                                            <ChevronRight className="h-4 w-4" />
+                                        </Button>
                                     </>
                                 )}
                             </div>
                             
                             <div className="flex items-center space-x-2">
-                                <button
+                                <Button
                                     onClick={toggleFullscreen}
-                                    className="p-1.5 rounded bg-white/10 hover:bg-white/20 touch-manipulation"
+                                    variant="ghost"
+                                    size="sm"
+                                    className="bg-white/10 hover:bg-white/20 text-white"
                                 >
-                                    <ArrowsPointingOutIcon className="w-4 h-4" />
-                                </button>
-                                <button
+                                    <Maximize className="h-4 w-4" />
+                                </Button>
+                                <Button
                                     onClick={downloadFile}
-                                    className="p-1.5 rounded bg-white/10 hover:bg-white/20 touch-manipulation"
+                                    variant="ghost"
+                                    size="sm"
+                                    className="bg-white/10 hover:bg-white/20 text-white"
                                 >
-                                    <ArrowDownTrayIcon className="w-4 h-4" />
-                                </button>
-                                <button
+                                    <Download className="h-4 w-4" />
+                                </Button>
+                                <Button
                                     onClick={handleDelete}
-                                    className="p-1.5 rounded bg-red-600/30 hover:bg-red-600/50 text-red-300 touch-manipulation"
+                                    variant="ghost"
+                                    size="sm"
+                                    className="bg-red-600/30 hover:bg-red-600/50 text-red-300"
                                 >
-                                    <TrashIcon className="w-4 h-4" />
-                                </button>
+                                    <Trash2 className="h-4 w-4" />
+                                </Button>
                             </div>
                         </div>
                     </div>
@@ -719,73 +778,89 @@ const FileViewer = ({
                         
                         <div className="flex items-center space-x-2">
                             {/* Navigation */}
-                            <button
+                            <Button
                                 onClick={navigatePrevious}
                                 disabled={!hasPrevious}
-                                className="p-2 rounded-lg bg-white/10 hover:bg-white/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                                variant="ghost"
+                                size="icon"
+                                className="bg-white/10 hover:bg-white/20 text-white"
                             >
-                                <ChevronLeftIcon className="w-5 h-5" />
-                            </button>
-                            <button
+                                <ChevronLeft className="h-5 w-5" />
+                            </Button>
+                            <Button
                                 onClick={navigateNext}
                                 disabled={!hasNext}
-                                className="p-2 rounded-lg bg-white/10 hover:bg-white/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                                variant="ghost"
+                                size="icon"
+                                className="bg-white/10 hover:bg-white/20 text-white"
                             >
-                                <ChevronRightIcon className="w-5 h-5" />
-                            </button>
+                                <ChevronRight className="h-5 w-5" />
+                            </Button>
 
                             {/* Zoom controls for images - Desktop only */}
                             {fileType === 'image' && (
                                 <>
-                                    <button
+                                    <Button
                                         onClick={zoomOut}
-                                        className="p-2 rounded-lg bg-white/10 hover:bg-white/20"
+                                        variant="ghost"
+                                        size="icon"
+                                        className="bg-white/10 hover:bg-white/20 text-white"
                                     >
-                                        <MagnifyingGlassMinusIcon className="w-5 h-5" />
-                                    </button>
-                                    <span className="text-sm px-2">
+                                        <ZoomOut className="h-5 w-5" />
+                                    </Button>
+                                    <span className="text-sm px-2 text-white">
                                         {Math.round(zoom * 100)}%
                                     </span>
-                                    <button
+                                    <Button
                                         onClick={zoomIn}
-                                        className="p-2 rounded-lg bg-white/10 hover:bg-white/20"
+                                        variant="ghost"
+                                        size="icon"
+                                        className="bg-white/10 hover:bg-white/20 text-white"
                                     >
-                                        <MagnifyingGlassPlusIcon className="w-5 h-5" />
-                                    </button>
+                                        <ZoomIn className="h-5 w-5" />
+                                    </Button>
                                 </>
                             )}
 
                             {/* Fullscreen toggle */}
-                            <button
+                            <Button
                                 onClick={toggleFullscreen}
-                                className="p-2 rounded-lg bg-white/10 hover:bg-white/20"
+                                variant="ghost"
+                                size="icon"
+                                className="bg-white/10 hover:bg-white/20 text-white"
                             >
-                                <ArrowsPointingOutIcon className="w-5 h-5" />
-                            </button>
+                                <Maximize className="h-5 w-5" />
+                            </Button>
 
                             {/* Download */}
-                            <button
+                            <Button
                                 onClick={downloadFile}
-                                className="p-2 rounded-lg bg-white/10 hover:bg-white/20"
+                                variant="ghost"
+                                size="icon"
+                                className="bg-white/10 hover:bg-white/20 text-white"
                             >
-                                <ArrowDownTrayIcon className="w-5 h-5" />
-                            </button>
+                                <Download className="h-5 w-5" />
+                            </Button>
 
                             {/* Delete */}
-                            <button
+                            <Button
                                 onClick={handleDelete}
-                                className="p-2 rounded-lg bg-red-600/20 hover:bg-red-600/40 text-red-400"
+                                variant="ghost"
+                                size="icon"
+                                className="bg-red-600/20 hover:bg-red-600/40 text-red-400"
                             >
-                                <TrashIcon className="w-5 h-5" />
-                            </button>
+                                <Trash2 className="h-5 w-5" />
+                            </Button>
 
                             {/* Close */}
-                            <button
+                            <Button
                                 onClick={onClose}
-                                className="p-2 rounded-lg bg-white/10 hover:bg-white/20"
+                                variant="ghost"
+                                size="icon"
+                                className="bg-white/10 hover:bg-white/20 text-white"
                             >
-                                <XMarkIcon className="w-5 h-5" />
-                            </button>
+                                <X className="h-5 w-5" />
+                            </Button>
                         </div>
                     </div>
                 </div>
@@ -817,7 +892,7 @@ const FileViewer = ({
             >
                 {isLoading && (
                     <div className="absolute inset-0 flex items-center justify-center">
-                        <div className="animate-spin rounded-full h-12 w-12 border-2 border-white border-t-transparent"></div>
+                        <LoadingSpinner size="lg" className="text-white" />
                     </div>
                 )}
 
@@ -835,34 +910,38 @@ const FileViewer = ({
                     <>
                         {/* Previous button */}
                         {hasPrevious && (
-                            <button
+                            <Button
                                 onClick={navigatePrevious}
+                                variant="ghost"
+                                size="icon"
                                 className={`
                                     hidden md:flex absolute left-4 top-1/2 transform -translate-y-1/2 z-20
-                                    items-center justify-center w-12 h-12 rounded-full
+                                    w-12 h-12 rounded-full
                                     bg-black/30 hover:bg-black/50 text-white backdrop-blur-sm
                                     transition-all duration-200 opacity-80 hover:opacity-100
-                                    ${!showControls && isFullscreen ? 'opacity-0' : ''}
+                                    ${!showControls && (isFullscreen || isMobile) ? 'opacity-0 pointer-events-none' : ''}
                                 `}
                             >
-                                <ChevronLeftIcon className="w-8 h-8" />
-                            </button>
+                                <ChevronLeft className="h-8 w-8" />
+                            </Button>
                         )}
 
                         {/* Next button */}
                         {hasNext && (
-                            <button
+                            <Button
                                 onClick={navigateNext}
+                                variant="ghost"
+                                size="icon"
                                 className={`
                                     hidden md:flex absolute right-4 top-1/2 transform -translate-y-1/2 z-20
-                                    items-center justify-center w-12 h-12 rounded-full
+                                    w-12 h-12 rounded-full
                                     bg-black/30 hover:bg-black/50 text-white backdrop-blur-sm
                                     transition-all duration-200 opacity-80 hover:opacity-100
-                                    ${!showControls && isFullscreen ? 'opacity-0' : ''}
+                                    ${!showControls && (isFullscreen || isMobile) ? 'opacity-0 pointer-events-none' : ''}
                                 `}
                             >
-                                <ChevronRightIcon className="w-8 h-8" />
-                            </button>
+                                <ChevronRight className="h-8 w-8" />
+                            </Button>
                         )}
                     </>
                 )}
@@ -890,38 +969,145 @@ const FileViewer = ({
                         )}
 
                         {fileType === 'video' && (
-                            <video
-                                ref={mediaRef}
-                                src={fileUrl}
-                                className="object-contain"
-                                style={{
-                                    width: isFullscreen ? '100vw' : '100%',
-                                    height: isFullscreen ? '100vh' : 'calc(100vh - 80px)',
-                                    maxWidth: '100%',
-                                    maxHeight: '100%'
-                                }}
-                                controls={!isFullscreen}
-                                onPlay={() => setIsPlaying(true)}
-                                onPause={() => setIsPlaying(false)}
-                                onTimeUpdate={(e) => setCurrentTime(e.target.currentTime)}
-                                onDurationChange={(e) => setDuration(e.target.duration)}
-                            />
+                            <div className="w-full h-full flex items-center justify-center relative">
+                                <video
+                                    ref={mediaRef}
+                                    src={fileUrl}
+                                    className="object-contain"
+                                    style={{
+                                        width: isFullscreen ? '100vw' : '100%',
+                                        height: isFullscreen ? '100vh' : 'calc(100vh - 120px)',
+                                        maxWidth: '100%',
+                                        maxHeight: '100%'
+                                    }}
+                                    controls
+                                    controlsList="nodownload"
+                                    onPlay={() => setIsPlaying(true)}
+                                    onPause={() => setIsPlaying(false)}
+                                    onTimeUpdate={(e) => setCurrentTime(e.target.currentTime)}
+                                    onDurationChange={(e) => setDuration(e.target.duration)}
+                                    onLoadedMetadata={(e) => {
+                                        setDuration(e.target.duration);
+                                        setCurrentTime(0);
+                                    }}
+                                />
+                            </div>
                         )}
 
                         {fileType === 'audio' && (
                             <div className="flex items-center justify-center min-h-full p-4">
-                                <div className="neo-card p-6 bg-white/10 backdrop-blur max-w-lg w-full">
-                                    <h3 className="text-lg mb-4 text-center truncate">{file.path.split('/').pop()}</h3>
-                                    <audio
-                                        ref={mediaRef}
-                                        src={fileUrl}
-                                        className="w-full"
-                                        controls
-                                        onPlay={() => setIsPlaying(true)}
-                                        onPause={() => setIsPlaying(false)}
-                                        style={{ maxWidth: '100%' }}
-                                    />
-                                </div>
+                                <Card className={`
+                                    p-6 bg-white/10 backdrop-blur border-white/20
+                                    ${isMobile ? 'w-full max-w-sm mx-4' : 'max-w-lg w-full'}
+                                `}>
+                                    <div className="text-center mb-6">
+                                        <h3 className="text-lg font-medium truncate text-white mb-2">
+                                            {file.path.split('/').pop()}
+                                        </h3>
+                                        <p className="text-sm text-gray-300">
+                                            Audio File
+                                        </p>
+                                    </div>
+                                    
+                                    {/* Custom audio controls for better mobile experience */}
+                                    <div className="space-y-4">
+                                        {/* Native audio element (hidden on mobile, visible on desktop) */}
+                                        <audio
+                                            ref={mediaRef}
+                                            src={fileUrl}
+                                            className={isMobile ? 'hidden' : 'w-full'}
+                                            controls={!isMobile}
+                                            onPlay={() => setIsPlaying(true)}
+                                            onPause={() => setIsPlaying(false)}
+                                            onTimeUpdate={(e) => setCurrentTime(e.target.currentTime)}
+                                            onDurationChange={(e) => setDuration(e.target.duration)}
+                                            onLoadedMetadata={(e) => {
+                                                setDuration(e.target.duration);
+                                                setCurrentTime(0);
+                                            }}
+                                        />
+                                        
+                                        {/* Mobile-friendly controls */}
+                                        {isMobile && (
+                                            <div className="space-y-4">
+                                                {/* Play/Pause button */}
+                                                <div className="flex justify-center">
+                                                    <Button
+                                                        onClick={togglePlay}
+                                                        variant="ghost"
+                                                        size="lg"
+                                                        className="w-16 h-16 rounded-full bg-white/20 hover:bg-white/30 text-white"
+                                                    >
+                                                        {isPlaying ? (
+                                                            <Pause className="h-8 w-8" />
+                                                        ) : (
+                                                            <Play className="h-8 w-8" />
+                                                        )}
+                                                    </Button>
+                                                </div>
+                                                
+                                                {/* Progress bar */}
+                                                <div className="space-y-2">
+                                                    <div className="flex justify-between text-xs text-gray-300">
+                                                        <span>{formatTime(currentTime)}</span>
+                                                        <span>{formatTime(duration)}</span>
+                                                    </div>
+                                                    <div className="w-full bg-white/20 rounded-full h-2">
+                                                        <div 
+                                                            className="bg-white h-2 rounded-full transition-all duration-300"
+                                                            style={{
+                                                                width: duration > 0 ? `${(currentTime / duration) * 100}%` : '0%'
+                                                            }}
+                                                        />
+                                                    </div>
+                                                </div>
+                                                
+                                                {/* Volume control */}
+                                                <div className="flex items-center justify-center space-x-3">
+                                                    <Button
+                                                        onClick={toggleMute}
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        className="bg-white/10 hover:bg-white/20 text-white"
+                                                    >
+                                                        {isMuted ? (
+                                                            <VolumeX className="h-4 w-4" />
+                                                        ) : (
+                                                            <Volume2 className="h-4 w-4" />
+                                                        )}
+                                                    </Button>
+                                                    <div className="flex-1 max-w-24">
+                                                        <input
+                                                            type="range"
+                                                            min="0"
+                                                            max="1"
+                                                            step="0.1"
+                                                            value={isMuted ? 0 : volume}
+                                                            onChange={(e) => {
+                                                                const newVolume = parseFloat(e.target.value);
+                                                                setVolume(newVolume);
+                                                                if (mediaRef.current) {
+                                                                    mediaRef.current.volume = newVolume;
+                                                                    if (newVolume === 0) {
+                                                                        setIsMuted(true);
+                                                                        mediaRef.current.muted = true;
+                                                                    } else {
+                                                                        setIsMuted(false);
+                                                                        mediaRef.current.muted = false;
+                                                                    }
+                                                                }
+                                                            }}
+                                                            className="w-full h-2 bg-white/20 rounded-lg appearance-none cursor-pointer"
+                                                            style={{
+                                                                background: `linear-gradient(to right, #ffffff ${volumePercent}%, rgba(255,255,255,0.2) ${volumePercent}%)`
+                                                            }}
+                                                        />
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                </Card>
                             </div>
                         )}
 
@@ -944,18 +1130,18 @@ const FileViewer = ({
 
                         {fileType === 'other' && (
                             <div className="text-center text-white">
-                                <div className="neo-card p-8 bg-white/10 backdrop-blur">
-                                    <h3 className="text-xl mb-4">Preview not available</h3>
+                                <Card className="p-8 bg-white/10 backdrop-blur border-white/20">
+                                    <h3 className="text-xl mb-4 text-white">Preview not available</h3>
                                     <p className="text-gray-300 mb-6">
                                         This file type cannot be previewed
                                     </p>
-                                    <button
+                                    <Button
                                         onClick={downloadFile}
-                                        className="neo-button px-6 py-3 bg-primary text-white"
+                                        className="px-6 py-3"
                                     >
                                         Download File
-                                    </button>
-                                </div>
+                                    </Button>
+                                </Card>
                             </div>
                         )}
                     </div>
@@ -971,12 +1157,14 @@ const FileViewer = ({
                         ${isMobile ? (showControls ? 'opacity-90' : 'opacity-0') : 'opacity-0 hover:opacity-100'}
                     `}>
                         <div className="flex items-center space-x-2">
-                            <button
+                            <Button
                                 onClick={toggleFullscreen}
-                                className="p-3 rounded-lg bg-black/60 text-white hover:bg-black/80 touch-manipulation"
+                                variant="ghost"
+                                size="icon"
+                                className="p-3 bg-black/60 text-white hover:bg-black/80"
                             >
-                                <ArrowsPointingInIcon className="w-6 h-6" />
-                            </button>
+                                <Minimize className="h-6 w-6" />
+                            </Button>
                         </div>
                     </div>
 
@@ -986,12 +1174,14 @@ const FileViewer = ({
                             absolute inset-y-0 left-4 flex items-center pointer-events-auto transition-opacity duration-300
                             ${isMobile ? (showControls ? 'opacity-80' : 'opacity-0') : 'opacity-0 hover:opacity-100'}
                         `}>
-                            <button
+                            <Button
                                 onClick={navigatePrevious}
-                                className="p-4 rounded-lg bg-black/60 text-white hover:bg-black/80 touch-manipulation"
+                                variant="ghost"
+                                size="icon"
+                                className="p-4 bg-black/60 text-white hover:bg-black/80"
                             >
-                                <ChevronLeftIcon className="w-8 h-8" />
-                            </button>
+                                <ChevronLeft className="h-8 w-8" />
+                            </Button>
                         </div>
                     )}
 
@@ -1001,12 +1191,14 @@ const FileViewer = ({
                             ${isMobile ? (showControls ? 'opacity-80' : 'opacity-0') : 'opacity-0 hover:opacity-100'}
                             ${isMobile ? 'right-20' : 'right-4'}
                         `}>
-                            <button
+                            <Button
                                 onClick={navigateNext}
-                                className="p-4 rounded-lg bg-black/60 text-white hover:bg-black/80 touch-manipulation"
+                                variant="ghost"
+                                size="icon"
+                                className="p-4 bg-black/60 text-white hover:bg-black/80"
                             >
-                                <ChevronRightIcon className="w-8 h-8" />
-                            </button>
+                                <ChevronRight className="h-8 w-8" />
+                            </Button>
                         </div>
                     )}
 

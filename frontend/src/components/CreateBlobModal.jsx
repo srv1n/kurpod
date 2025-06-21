@@ -1,7 +1,18 @@
 import React, { useState } from 'react';
-import { Dialog } from '@headlessui/react';
-import { XMarkIcon } from '@heroicons/react/24/outline';
-import { useToast } from './Toast';
+import { X } from 'lucide-react';
+import { toast } from 'sonner';
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
 
 export function CreateBlobModal({ isOpen, onClose, onSuccess }) {
     const [blobName, setBlobName] = useState('');
@@ -9,28 +20,27 @@ export function CreateBlobModal({ isOpen, onClose, onSuccess }) {
     const [passwordH, setPasswordH] = useState('');
     const [useHiddenVolume, setUseHiddenVolume] = useState(false);
     const [loading, setLoading] = useState(false);
-    const { showToast } = useToast();
 
     const handleSubmit = async (e) => {
         e.preventDefault();
         
         if (!blobName.trim()) {
-            showToast('Please enter a blob name', 'error');
+            toast.error('Please enter a blob name');
             return;
         }
 
         if (!passwordS.trim()) {
-            showToast('Please enter a password', 'error');
+            toast.error('Please enter a password');
             return;
         }
 
         if (useHiddenVolume && !passwordH.trim()) {
-            showToast('Please enter a hidden volume password', 'error');
+            toast.error('Please enter a hidden volume password');
             return;
         }
 
         if (useHiddenVolume && passwordS === passwordH) {
-            showToast('Standard and hidden passwords must be different', 'error');
+            toast.error('Standard and hidden passwords must be different');
             return;
         }
 
@@ -52,15 +62,15 @@ export function CreateBlobModal({ isOpen, onClose, onSuccess }) {
             const data = await response.json();
 
             if (response.ok && data.success) {
-                showToast('Blob created successfully!', 'success');
+                toast.success('Blob created successfully!');
                 onSuccess(blobName.trim(), data.data.token);
                 handleClose();
             } else {
-                showToast(data.message || 'Failed to create blob', 'error');
+                toast.error(data.message || 'Failed to create blob');
             }
         } catch (error) {
             console.error('Create blob error:', error);
-            showToast('Network error. Please try again.', 'error');
+            toast.error('Network error. Please try again.');
         } finally {
             setLoading(false);
         }
@@ -76,128 +86,104 @@ export function CreateBlobModal({ isOpen, onClose, onSuccess }) {
     };
 
     return (
-        <Dialog open={isOpen} onClose={handleClose} className="relative z-50">
-            <div className="fixed inset-0 bg-black/25" />
-            <div className="fixed inset-0 flex items-center justify-center p-4">
-                <Dialog.Panel className="w-full max-w-md bg-white dark:bg-gray-800 rounded-lg shadow-xl">
-                    <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-600">
-                        <div className="flex items-center space-x-3">
-                            <img 
-                                src="/favicon-32x32.png" 
-                                alt="KURPOD" 
-                                className="w-6 h-6"
-                            />
-                            <Dialog.Title className="text-lg font-semibold text-gray-900 dark:text-white">
-                                Create New Blob
-                            </Dialog.Title>
-                        </div>
-                        <button
-                            onClick={handleClose}
-                            className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-                        >
-                            <XMarkIcon className="h-6 w-6" />
-                        </button>
+        <Dialog open={isOpen} onOpenChange={handleClose}>
+            <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                    <div className="flex items-center gap-2">
+                        <img 
+                            src="/favicon-32x32.png" 
+                            alt="KURPOD" 
+                            className="w-6 h-6"
+                        />
+                        <DialogTitle>Create New Blob</DialogTitle>
+                    </div>
+                    <DialogDescription>
+                        Create a new encrypted blob file for storing your data securely.
+                    </DialogDescription>
+                </DialogHeader>
+
+                <form onSubmit={handleSubmit} className="space-y-4">
+                    {/* Blob Name */}
+                    <div className="space-y-2">
+                        <Label htmlFor="blobName">Blob File Name</Label>
+                        <Input
+                            id="blobName"
+                            type="text"
+                            value={blobName}
+                            onChange={(e) => setBlobName(e.target.value)}
+                            placeholder="e.g., my-storage.blob, documents.dat, photos.pdf"
+                            disabled={loading}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                            You can use any file extension to disguise the blob file
+                        </p>
                     </div>
 
-                    <form onSubmit={handleSubmit} className="p-6 space-y-4">
-                        {/* Blob Name */}
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                                Blob File Name
-                            </label>
-                            <input
-                                type="text"
-                                value={blobName}
-                                onChange={(e) => setBlobName(e.target.value)}
-                                placeholder="e.g., my-storage.blob, documents.dat, photos.pdf"
-                                className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg 
-                                         bg-white dark:bg-gray-700 text-gray-900 dark:text-white
-                                         focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    {/* Standard Password */}
+                    <div className="space-y-2">
+                        <Label htmlFor="passwordS">Standard Volume Password</Label>
+                        <Input
+                            id="passwordS"
+                            type="password"
+                            value={passwordS}
+                            onChange={(e) => setPasswordS(e.target.value)}
+                            placeholder="Enter password for standard volume"
+                            disabled={loading}
+                        />
+                    </div>
+
+                    {/* Hidden Volume Option */}
+                    <div className="flex items-center space-x-2">
+                        <Checkbox
+                            id="useHiddenVolume"
+                            checked={useHiddenVolume}
+                            onCheckedChange={setUseHiddenVolume}
+                            disabled={loading}
+                        />
+                        <Label 
+                            htmlFor="useHiddenVolume" 
+                            className="text-sm leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                        >
+                            Create hidden volume for plausible deniability
+                        </Label>
+                    </div>
+
+                    {/* Hidden Password */}
+                    {useHiddenVolume && (
+                        <div className="space-y-2">
+                            <Label htmlFor="passwordH">Hidden Volume Password</Label>
+                            <Input
+                                id="passwordH"
+                                type="password"
+                                value={passwordH}
+                                onChange={(e) => setPasswordH(e.target.value)}
+                                placeholder="Enter password for hidden volume"
                                 disabled={loading}
                             />
-                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                                You can use any file extension to disguise the blob file
+                            <p className="text-xs text-muted-foreground">
+                                Must be different from standard password
                             </p>
                         </div>
+                    )}
 
-                        {/* Standard Password */}
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                                Standard Volume Password
-                            </label>
-                            <input
-                                type="password"
-                                value={passwordS}
-                                onChange={(e) => setPasswordS(e.target.value)}
-                                placeholder="Enter password for standard volume"
-                                className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg 
-                                         bg-white dark:bg-gray-700 text-gray-900 dark:text-white
-                                         focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                disabled={loading}
-                            />
-                        </div>
-
-                        {/* Hidden Volume Option */}
-                        <div className="flex items-center space-x-2">
-                            <input
-                                type="checkbox"
-                                id="useHiddenVolume"
-                                checked={useHiddenVolume}
-                                onChange={(e) => setUseHiddenVolume(e.target.checked)}
-                                className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                                disabled={loading}
-                            />
-                            <label htmlFor="useHiddenVolume" className="text-sm text-gray-700 dark:text-gray-300">
-                                Create hidden volume for plausible deniability
-                            </label>
-                        </div>
-
-                        {/* Hidden Password */}
-                        {useHiddenVolume && (
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                                    Hidden Volume Password
-                                </label>
-                                <input
-                                    type="password"
-                                    value={passwordH}
-                                    onChange={(e) => setPasswordH(e.target.value)}
-                                    placeholder="Enter password for hidden volume"
-                                    className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg 
-                                             bg-white dark:bg-gray-700 text-gray-900 dark:text-white
-                                             focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                    disabled={loading}
-                                />
-                                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                                    Must be different from standard password
-                                </p>
-                            </div>
-                        )}
-
-                        {/* Actions */}
-                        <div className="flex justify-end space-x-3 pt-4">
-                            <button
-                                type="button"
-                                onClick={handleClose}
-                                disabled={loading}
-                                className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 
-                                         bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 
-                                         rounded-lg disabled:opacity-50"
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                type="submit"
-                                disabled={loading}
-                                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 
-                                         rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                                {loading ? 'Creating...' : 'Create Blob'}
-                            </button>
-                        </div>
-                    </form>
-                </Dialog.Panel>
-            </div>
+                    <DialogFooter>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            onClick={handleClose}
+                            disabled={loading}
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            type="submit"
+                            disabled={loading}
+                        >
+                            {loading ? 'Creating...' : 'Create Blob'}
+                        </Button>
+                    </DialogFooter>
+                </form>
+            </DialogContent>
         </Dialog>
     );
 }

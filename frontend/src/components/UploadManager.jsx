@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { useToast } from './Toast';
+import { toast } from 'sonner';
 import {
     ArrowUpTrayIcon,
     FolderPlusIcon,
@@ -11,6 +11,10 @@ import {
     CheckCircleIcon,
     ExclamationCircleIcon
 } from '@heroicons/react/24/outline';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Progress } from '@/components/ui/progress';
+import { Badge } from '@/components/ui/badge';
 
 const UploadManager = ({ 
     isOpen, 
@@ -28,7 +32,6 @@ const UploadManager = ({
     const fileInputRef = useRef(null);
     const folderInputRef = useRef(null);
     const { apiCall } = useAuth();
-    const { showToast } = useToast();
 
     // Handle file selection
     const handleFileSelect = useCallback((selectedFiles) => {
@@ -98,7 +101,7 @@ const UploadManager = ({
                 await uploadBatch(batch, batchId, isFinalBatch);
             }
             
-            showToast('All files uploaded successfully!', 'success');
+            toast.success('All files uploaded successfully!');
             onUploadComplete?.();
             setTimeout(() => {
                 onClose();
@@ -106,11 +109,11 @@ const UploadManager = ({
             }, 1000);
             
         } catch (error) {
-            showToast('Some files failed to upload', 'error');
+            toast.error('Some files failed to upload');
         } finally {
             setUploading(false);
         }
-    }, [files, currentFolder, onUploadComplete, onClose, clearFiles, showToast]);
+    }, [files, currentFolder, onUploadComplete, onClose, clearFiles]);
 
     // Upload a single batch
     const uploadBatch = async (batch, batchId, isFinalBatch) => {
@@ -231,77 +234,84 @@ const UploadManager = ({
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-            <div className="neo-card w-full max-w-4xl max-h-[90vh] flex flex-col">
-                {/* Header */}
-                <div className="flex items-center justify-between p-6 border-b border-border">
-                    <div className="flex items-center space-x-3">
-                        {uploadType === 'folder' ? (
-                            <FolderPlusIcon className="w-6 h-6 text-blue-600" />
-                        ) : (
-                            <ArrowUpTrayIcon className="w-6 h-6 text-blue-600" />
-                        )}
-                        <h2 className="text-heading">
-                            Upload {uploadType === 'folder' ? 'Folder' : 'Files'}
-                        </h2>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <Card className="w-full max-w-lg sm:max-w-2xl lg:max-w-4xl max-h-[95vh] sm:max-h-[90vh] flex flex-col animate-in">
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <div className="flex items-center gap-3">
+                        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
+                            {uploadType === 'folder' ? (
+                                <FolderPlusIcon className="h-5 w-5 text-primary" />
+                            ) : (
+                                <ArrowUpTrayIcon className="h-5 w-5 text-primary" />
+                            )}
+                        </div>
+                        <div>
+                            <CardTitle className="text-xl">
+                                Upload {uploadType === 'folder' ? 'Folder' : 'Files'}
+                            </CardTitle>
+                            <p className="text-sm text-muted-foreground">
+                                {uploadType === 'folder' ? 'Select a folder to upload' : 'Select files to upload'}
+                            </p>
+                        </div>
                     </div>
-                    <button
+                    <Button
+                        variant="ghost"
+                        size="icon"
                         onClick={onClose}
-                        className="neo-button p-2 text-gray-500 hover:text-gray-700"
                         disabled={uploading}
                     >
-                        <XMarkIcon className="w-5 h-5" />
-                    </button>
-                </div>
+                        <XMarkIcon className="h-4 w-4" />
+                    </Button>
+                </CardHeader>
 
-                {/* Upload area */}
-                <div className="flex-1 p-6 overflow-hidden flex flex-col">
+                <CardContent className="flex-1 overflow-hidden flex flex-col space-y-6">
                     {/* Drop zone */}
                     <div
                         className={`
-                            neo-inset border-2 border-dashed rounded-2xl p-8 text-center transition-all duration-200
+                            relative border-2 border-dashed rounded-xl p-6 sm:p-8 text-center transition-all duration-200 cursor-pointer
                             ${dragActive 
-                                ? 'border-primary bg-primary/5' 
-                                : 'border-gray-300 dark:border-gray-600'
+                                ? 'border-primary bg-primary/5 scale-[1.02]' 
+                                : 'border-border hover:border-primary/50 hover:bg-muted/50'
                             }
-                            ${files.length === 0 ? 'h-64' : 'h-32'}
+                            ${files.length === 0 ? 'min-h-[200px] sm:min-h-[240px]' : 'min-h-[120px] sm:min-h-[140px]'}
                         `}
                         onDragEnter={handleDrag}
                         onDragLeave={handleDrag}
                         onDragOver={handleDrag}
                         onDrop={handleDrop}
+                        onClick={() => {
+                            if (uploadType === 'folder') {
+                                folderInputRef.current?.click();
+                            } else {
+                                fileInputRef.current?.click();
+                            }
+                        }}
                     >
-                        <div className="flex flex-col items-center space-y-4">
-                            {uploadType === 'folder' ? (
-                                <FolderPlusIcon className="w-12 h-12 text-gray-400" />
-                            ) : (
-                                <ArrowUpTrayIcon className="w-12 h-12 text-gray-400" />
-                            )}
+                        <div className="flex flex-col items-center justify-center space-y-4">
+                            <div className={`flex h-12 w-12 sm:h-16 sm:w-16 items-center justify-center rounded-full transition-all duration-200 ${
+                                dragActive ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
+                            }`}>
+                                {uploadType === 'folder' ? (
+                                    <FolderPlusIcon className="h-6 w-6 sm:h-8 sm:w-8" />
+                                ) : (
+                                    <ArrowUpTrayIcon className="h-6 w-6 sm:h-8 sm:w-8" />
+                                )}
+                            </div>
                             
-                            <div>
-                                <p className="text-subheading text-foreground mb-2">
+                            <div className="space-y-2">
+                                <p className="text-subheading font-medium text-foreground">
                                     {dragActive 
                                         ? `Drop ${uploadType === 'folder' ? 'folder' : 'files'} here` 
                                         : `Drag and drop ${uploadType === 'folder' ? 'a folder' : 'files'} here`
                                     }
                                 </p>
-                                <p className="text-body text-gray-500 mb-4">or</p>
+                                <p className="text-body text-muted-foreground">or click to browse</p>
                                 
-                                <div className="flex flex-col sm:flex-row gap-2 justify-center">
-                                    <button
-                                        onClick={() => {
-                                            if (uploadType === 'folder') {
-                                                folderInputRef.current?.click();
-                                            } else {
-                                                fileInputRef.current?.click();
-                                            }
-                                        }}
-                                        className="neo-button px-6 py-3 text-primary font-medium"
-                                        disabled={uploading}
-                                    >
-                                        Browse {uploadType === 'folder' ? 'Folder' : 'Files'}
-                                    </button>
-                                </div>
+                                {files.length === 0 && (
+                                    <p className="text-caption text-muted-foreground mt-2">
+                                        Supports all file types • No size limit
+                                    </p>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -325,88 +335,108 @@ const UploadManager = ({
 
                     {/* File list */}
                     {files.length > 0 && (
-                        <div className="flex-1 mt-6 overflow-hidden flex flex-col">
-                            <div className="flex items-center justify-between mb-4">
-                                <h3 className="text-subheading">
-                                    {files.length} file{files.length !== 1 ? 's' : ''} selected
-                                </h3>
-                                <button
+                        <div className="flex-1 overflow-hidden flex flex-col space-y-4">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <h3 className="text-subheading font-medium">
+                                        {files.length} file{files.length !== 1 ? 's' : ''} selected
+                                    </h3>
+                                    <p className="text-caption text-muted-foreground">
+                                        {files.reduce((acc, file) => acc + file.size, 0) > 0 && 
+                                            `Total size: ${formatSize(files.reduce((acc, file) => acc + file.size, 0))}`
+                                        }
+                                    </p>
+                                </div>
+                                <Button
+                                    variant="ghost"
                                     onClick={clearFiles}
-                                    className="neo-button px-4 py-2 text-body text-red-600 hover:text-red-700"
                                     disabled={uploading}
+                                    className="text-destructive hover:text-destructive hover:bg-destructive/10"
                                 >
                                     Clear All
-                                </button>
+                                </Button>
                             </div>
 
                             {/* Progress bar */}
                             {uploading && (
-                                <div className="mb-4">
-                                    <div className="flex items-center justify-between mb-2">
-                                        <span className="text-body">Overall Progress</span>
-                                        <span className="text-body">
-                                            {completedFiles} / {totalFiles} completed
+                                <div className="space-y-2">
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-body font-medium">Uploading files...</span>
+                                        <span className="text-body text-muted-foreground">
+                                            {completedFiles} of {totalFiles} completed
                                         </span>
                                     </div>
-                                    <div className="neo-progress h-3">
-                                        <div 
-                                            className="neo-progress-bar h-full transition-all duration-300"
-                                            style={{ width: `${overallProgress}%` }}
-                                        />
-                                    </div>
+                                    <Progress value={overallProgress} className="w-full" />
                                     {errorFiles > 0 && (
-                                        <p className="text-caption text-red-600 mt-1">
-                                            {errorFiles} file{errorFiles !== 1 ? 's' : ''} failed
+                                        <p className="text-caption text-destructive flex items-center gap-1">
+                                            <ExclamationCircleIcon className="h-3 w-3" />
+                                            {errorFiles} file{errorFiles !== 1 ? 's' : ''} failed to upload
                                         </p>
                                     )}
                                 </div>
                             )}
 
                             {/* File list */}
-                            <div className="flex-1 overflow-auto neo-inset rounded-xl">
-                                <div className="p-4 space-y-2">
+                            <div className="flex-1 overflow-auto border border-border rounded-lg">
+                                <div className="divide-y divide-border">
                                     {files.map((fileItem) => {
                                         const IconComponent = getFileIcon(fileItem);
                                         
                                         return (
                                             <div
                                                 key={fileItem.id}
-                                                className="flex items-center space-x-3 p-3 rounded-lg bg-card hover:bg-card-hover transition-colors duration-200"
+                                                className="flex items-center gap-3 p-3 hover:bg-muted/50 transition-colors duration-200"
                                             >
-                                                <IconComponent className="w-5 h-5 text-gray-500 flex-shrink-0" />
+                                                <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted">
+                                                    <IconComponent className="h-4 w-4 text-muted-foreground" />
+                                                </div>
                                                 
                                                 <div className="flex-1 min-w-0">
                                                     <p className="text-body font-medium truncate">
                                                         {fileItem.name}
                                                     </p>
-                                                    <p className="text-caption text-gray-500">
-                                                        {formatSize(fileItem.size)}
+                                                    <div className="flex items-center gap-2 text-caption text-muted-foreground">
+                                                        <span>{formatSize(fileItem.size)}</span>
                                                         {fileItem.path !== fileItem.name && (
-                                                            <span className="ml-2">• {fileItem.path}</span>
+                                                            <>
+                                                                <span className="hidden sm:inline">•</span>
+                                                                <span className="hidden sm:inline truncate">{fileItem.path}</span>
+                                                            </>
                                                         )}
-                                                    </p>
+                                                    </div>
                                                 </div>
                                                 
-                                                <div className="flex items-center space-x-2 flex-shrink-0">
+                                                <div className="flex items-center gap-2 flex-shrink-0">
                                                     {fileItem.status === 'completed' && (
-                                                        <CheckCircleIcon className="w-5 h-5 text-green-600" />
+                                                        <Badge variant="secondary" className="bg-green-100 text-green-800 hover:bg-green-100">
+                                                            <CheckCircleIcon className="h-3 w-3 mr-1" />
+                                                            Done
+                                                        </Badge>
                                                     )}
                                                     {fileItem.status === 'error' && (
-                                                        <ExclamationCircleIcon className="w-5 h-5 text-red-600" />
+                                                        <Badge variant="destructive">
+                                                            <ExclamationCircleIcon className="h-3 w-3 mr-1" />
+                                                            Error
+                                                        </Badge>
                                                     )}
                                                     {fileItem.status === 'uploading' && (
-                                                        <div className="w-5 h-5">
-                                                            <div className="animate-spin rounded-full h-5 w-5 border-2 border-primary border-t-transparent"></div>
+                                                        <div className="flex h-6 w-6 items-center justify-center">
+                                                            <div className="animate-spin rounded-full h-4 w-4 border-2 border-primary border-t-transparent"></div>
                                                         </div>
                                                     )}
                                                     
                                                     {!uploading && fileItem.status === 'pending' && (
-                                                        <button
-                                                            onClick={() => removeFile(fileItem.id)}
-                                                            className="neo-button p-1 text-red-600 hover:text-red-700"
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="icon"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                removeFile(fileItem.id);
+                                                            }}
+                                                            className="h-6 w-6 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
                                                         >
-                                                            <XMarkIcon className="w-4 h-4" />
-                                                        </button>
+                                                            <XMarkIcon className="h-3 w-3" />
+                                                        </Button>
                                                     )}
                                                 </div>
                                             </div>
@@ -416,33 +446,42 @@ const UploadManager = ({
                             </div>
                         </div>
                     )}
-                </div>
+                </CardContent>
 
                 {/* Footer */}
-                <div className="flex items-center justify-end space-x-3 p-6 border-t border-border">
-                    <button
-                        onClick={onClose}
-                        className="neo-button px-6 py-3 text-body"
-                        disabled={uploading}
-                    >
-                        Cancel
-                    </button>
-                    <button
-                        onClick={uploadFiles}
-                        disabled={files.length === 0 || uploading}
-                        className="neo-button px-6 py-3 text-white bg-primary hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                        {uploading ? (
-                            <div className="flex items-center space-x-2">
-                                <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
-                                <span>Uploading...</span>
-                            </div>
-                        ) : (
-                            `Upload ${files.length} file${files.length !== 1 ? 's' : ''}`
+                <div className="flex items-center justify-between p-6 border-t bg-muted/30">
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        {files.length > 0 && !uploading && (
+                            <span>Ready to upload {files.length} file{files.length !== 1 ? 's' : ''}</span>
                         )}
-                    </button>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <Button
+                            variant="outline"
+                            onClick={onClose}
+                            disabled={uploading}
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            onClick={uploadFiles}
+                            disabled={files.length === 0 || uploading}
+                        >
+                            {uploading ? (
+                                <>
+                                    <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent mr-2"></div>
+                                    <span className="hidden sm:inline">Uploading...</span>
+                                </>
+                            ) : (
+                                <>
+                                    <ArrowUpTrayIcon className="h-4 w-4 mr-2" />
+                                    <span>Upload {files.length > 0 ? `(${files.length})` : ''}</span>
+                                </>
+                            )}
+                        </Button>
+                    </div>
                 </div>
-            </div>
+            </Card>
         </div>
     );
 };
