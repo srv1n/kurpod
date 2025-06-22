@@ -50,7 +50,7 @@ If you are ever forced to reveal a password, you can give up the decoy one. The 
 - Built in Rust
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Option 1: Homebrew (macOS - Recommended)
 ```bash
@@ -136,7 +136,7 @@ sudo rm -f /usr/local/bin/kurpod_server
 
 ---
 
-## 📋 Supported Platforms
+## Supported Platforms
 
 ### Desktop & Server
 - **Linux**: x86_64, ARM64 (including Raspberry Pi with 64-bit OS)
@@ -149,9 +149,9 @@ sudo rm -f /usr/local/bin/kurpod_server
 
 ---
 
-## ✨ Features
+## Features
 
-### 🔐 Security & Privacy
+### Security & Privacy
 - **Zero-knowledge architecture** - Server never sees unencrypted data
 - **Modern encryption** - XChaCha20-Poly1305 with 256-bit keys
 - **Strong key derivation** - Argon2id with 64MB memory cost
@@ -161,36 +161,23 @@ sudo rm -f /usr/local/bin/kurpod_server
 - **File integrity** - Authenticated encryption prevents tampering
 - **No metadata leakage** - Filenames, sizes, and structure encrypted
 
-### 🎨 User Experience
-- **Modern web interface** - Drag-and-drop with real-time feedback
+### User Experience
 - **Dark/light themes** - System-aware with manual toggle
 - **Multi-format preview** - Images, videos, PDFs, text, and audio
 - **Mobile-responsive** - Full functionality on phones and tablets
-- **Keyboard navigation** - Complete accessibility support
-- **Toast notifications** - Elegant error handling and progress updates
 - **File organization** - Folders, search, sorting, and batch operations
-- **Video streaming** - HTTP range requests with custom controls
 
-### ⚡ Performance & Technical
-- **Streaming encryption** - Process files of any size
+### Performance & Technical
 - **Concurrent sessions** - Multiple users with isolated authentication
 - **Efficient storage** - Deduplication and compression
-- **Single binary** - No external dependencies or databases
+- **Single binary** - No external dependencies or databases (~2.5MB)
 - **Container-optimized** - Multi-arch Docker images (~4.8MB)
 - **Structured logging** - Configurable log levels and health checks
 - **Cross-platform** - Linux, macOS, Windows (Intel and ARM)
 
-### 🛠️ Developer Experience
-- **REST API** - 15 endpoints with authentication
-- **WebSocket support** - Real-time updates and notifications
-- **Comprehensive testing** - Unit, integration, and security tests
-- **Modern tech stack** - Rust backend, React frontend, Vite build
-- **Hot reload** - Development server with instant feedback
-- **Extensive documentation** - API docs, architecture guide, user manual
-
 ---
 
-## 🔐 How It Works
+## How It Works
 
 ### Simple Setup
 1. **Deploy KURPOD** - Single binary, Docker, or Homebrew installation
@@ -220,12 +207,9 @@ sudo rm -f /usr/local/bin/kurpod_server
 - No headers, signatures, or detectible patterns
 - Provides cryptographic deniability under coercion
 - Independent encryption keys and data structures
-
-⚠️ **Security Note**: Plausible deniability provides cryptographic protection, not legal immunity. Understand your jurisdiction's laws regarding encryption and disclosure.
-
 ---
 
-## 📦 Installation Options
+## Installation Options
 
 ### Docker Installation
 
@@ -363,7 +347,7 @@ cargo build --release -p kurpod_server
 
 ---
 
-## 📊 Performance & Sizing
+## Performance & Sizing
 
 ### Binary Sizes
 | Platform | Binary Size |
@@ -383,11 +367,11 @@ cargo build --release -p kurpod_server
 
 ---
 
-## 🚀 Project Status
+## Project Status
 
 This is the **initial open source release** of KURPOD. While the core functionality is working and tested, we consider this an early version and welcome community feedback.
 
-### ✅ What's Working
+### What's Working
 - **Session-based authentication** - Split-key security with token management
 - **Web interface** - Dark/light themes, drag-and-drop, responsive design
 - **Media handling** - Video streaming, thumbnail generation, file previews
@@ -396,7 +380,7 @@ This is the **initial open source release** of KURPOD. While the core functional
 - **Docker support** - Multi-arch images
 - **Development tooling** - Hot reload, testing, linting, documentation
 
-### 🔄 Known Limitations
+### Known Limitations
 - **Single-user sessions** - Multi-user ACLs not yet implemented
 - **No built-in TLS** - Requires reverse proxy for HTTPS
 - **Web-only interface** - No native mobile apps yet
@@ -404,7 +388,7 @@ This is the **initial open source release** of KURPOD. While the core functional
 
 ---
 
-## 🔒 Security Verification
+## Security Verification
 
 ### Binary Verification
 All release binaries are signed and include SHA256 checksums:
@@ -427,7 +411,7 @@ gpg --verify kurpod_server.asc kurpod_server
 
 ---
 
-## 🛠️ Development
+## Development
 
 ### Development Setup
 ```bash
@@ -497,7 +481,7 @@ kurpod/
 
 ---
 
-## 📚 Documentation
+## Documentation
 
 - **[User Manual](docs/USER_MANUAL.md)** - Comprehensive usage guide
 - **[Architecture](docs/ARCHITECTURE.md)** - Technical design documentation  
@@ -506,24 +490,24 @@ kurpod/
 
 ---
 
-## 🤝 Support & Community
+## Support & Community
 
 ### Getting Help
-- **🐛 Bug Reports**: [GitHub Issues](https://github.com/srv1n/kurpod/issues)
-- **💬 Discussions**: [GitHub Discussions](https://github.com/srv1n/kurpod/discussions)
-- **📖 Documentation**: [docs/](https://kurpod.com) directory
-- **🔐 Security Issues**: See [SECURITY.md](SECURITY.md)
-- **💬 Discord**: [Discord](https://discord.gg/Z54tGqGGRw)
+- **Bug Reports**: [GitHub Issues](https://github.com/srv1n/kurpod/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/srv1n/kurpod/discussions)
+- **Documentation**: [docs/](https://kurpod.com) directory
+- **Security Issues**: See [SECURITY.md](SECURITY.md)
+- **Discord**: [Discord](https://discord.gg/Z54tGqGGRw)
 
 ### Resources
-- **📦 Releases**: [GitHub Releases](https://github.com/srv1n/kurpod/releases)
-- **🐳 Docker Images**: [GitHub Container Registry](https://github.com/srv1n/kurpod/pkgs/container/kurpod)
-- **📊 Project Status**: [GitHub Actions](https://github.com/srv1n/kurpod/actions)
-- **🏷️ Version History**: [Releases Page](https://github.com/srv1n/kurpod/releases)
+- **Releases**: [GitHub Releases](https://github.com/srv1n/kurpod/releases)
+- **Docker Images**: [GitHub Container Registry](https://github.com/srv1n/kurpod/pkgs/container/kurpod)
+- **Project Status**: [GitHub Actions](https://github.com/srv1n/kurpod/actions)
+- **Version History**: [Releases Page](https://github.com/srv1n/kurpod/releases)
 
 ---
 
-## ❓ Frequently Asked Questions
+## Frequently Asked Questions
 
 **Q: Can the UI prove I didn't create a hidden volume?**  
 A: No. The whole point is that the blob is indistinguishable from random data, so the server/frontend cannot reveal that fact either way.
@@ -549,57 +533,7 @@ A: Sessions timeout after 15 minutes of inactivity or 2 hours maximum. All crypt
 **Q: Can I use this with cloud storage?**  
 A: Yes! The blob file can be stored on cloud services (Dropbox, Google Drive, etc.) for backup, but KURPOD itself handles the encryption.
 
----
-
-## 📜 License
-
-This project is licensed under the **GNU Affero General Public License v3.0 (AGPLv3)**.
-
-### What this means:
-- ✅ **Free to use** for personal and commercial purposes
-- ✅ **Free to modify** and distribute
-- ✅ **Free to self-host** and run your own instance
-- ⚠️ **Source code sharing required** if you run this as a network service
-- ⚠️ **Modifications must be shared** under the same license
-
-If you run KURPOD as a service (including internal company use), you must make your source code (including any modifications) available under AGPLv3.
-
-See the [LICENSE](LICENSE) file for full details.
 
 ---
 
-## 🎯 Recent Improvements
-
-### Session Security Enhancement
-- Implemented split-key authentication architecture
-- Added HMAC-SHA256 signed bearer tokens with IP/UA binding
-- Automatic session cleanup with cryptographic material zeroization
-
-### UI/UX Overhaul
-- Modern React interface with dark/light theme support
-- Comprehensive component library with 20+ reusable components
-- Mobile-responsive design with touch-friendly interactions
-- Real-time notifications and progress indicators
-
-### Media Processing
-- Native video streaming with HTTP range request support
-- Browser-based thumbnail generation for videos
-- Multi-format file preview (images, PDFs, text, video, audio)
-- Efficient file type detection using magic bytes
-
-### Developer Experience
-- Complete API documentation with 15 authenticated endpoints
-- Hot reload development server with instant feedback
-- Comprehensive test suite including security and load tests
-- Modern build system with Vite frontend and optimized Rust backend
-
-### Production Readiness
-- Docker images optimized for size and security
-- Cross-platform binaries for all major architectures
-- Structured logging with configurable levels
-- Health check endpoints for monitoring and load balancing
-
----
-
-**Built in Rust.** Uses established cryptography: XChaCha20-Poly1305 + Argon2id.  
-**Early release.** Help us improve by testing, reporting issues, and contributing.
+**Early release.** Expect bugs,help by reporting issues, and contributing.
