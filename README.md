@@ -41,7 +41,10 @@ If you are ever forced to reveal a password, you can give up the decoy one. The 
 5. Optional: create second encrypted volume with different password
 
 ---
+## Short Video
+https://github.com/user-attachments/assets/467464f6-91fe-48e1-b7fb-bd431302d7a3
 
+---
 ## Technical details
 
 ### Encryption
