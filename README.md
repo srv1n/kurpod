@@ -15,7 +15,7 @@ No accounts. No tracking. No cloud dependencies.
 - Name it `work_report.pdf` - appears to be a document  
 - Name it `music_playlist.m3u` - seems like a music file
 
-**Important**: This is filename disguise, not true file format mimicry. Technical inspection (`file` command) will show it's encrypted data. But for everyday privacy - shared computers, cloud storage, basic inspection - the innocent filename provides excellent camouflage.
+**Important**: This is filename disguise, not true file format mimicry. Technical inspection (`file` command) will show it's encrypted data. But for everyday privacy i.e shared computers, cloud storage, basic inspection the innocent filename provides excellent camouflage. True steganography is planned in the future. 
 
 The real magic is the **dual-volume encryption** that lets you hide a second encrypted space inside the same file.
 
