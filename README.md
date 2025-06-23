@@ -1,6 +1,6 @@
 # KURPOD
 
-**Hide your private documents,photos,files inside "vacation.jpg"**
+**Hide your private documents, photos, files inside "vacation.jpg"**
 
 Encrypted file containers with innocent filenames. Your 1,000 personal files become one disguised blob - portable, secure, and tiny.
 
