@@ -1,35 +1,40 @@
 # KURPOD
 
-**Self-hosted encrypted file storage system** with XChaCha20-Poly1305 encryption, plausible deniability, and a modern web interface.
+**Hide your private documents,photos,files inside "vacation.jpg"**
 
-Your own encrypted file vault - self-hosted and delivered in a single ~2MB binary.
+Encrypted file containers with innocent filenames. Your 1,000 personal files become one disguised blob - portable, secure, and tiny.
+
+A self-hosted a single ~2MB binary.
 No accounts. No tracking. No cloud dependencies.
 
----
-## ELI5 
+## What This Actually Does
 
-Think of a Kurpod file as a **portable, encrypted hard drive packed into a single file**. It's like a super secure ZIP archive or a virtual disk that you can disguise as anything you want.
+**KURPOD creates encrypted blob files that you can name anything.** 
 
-Here’s how it works:
+- Name it `vacation.jpg` - looks like a photo to casual observers
+- Name it `work_report.pdf` - appears to be a document  
+- Name it `music_playlist.m3u` - seems like a music file
 
-1.  **Create Your Secure Containers:** You can create as many separate Kurpod files as you need one for work projects, one for personal photos, another for tax documents. Each file acts as its own independent, secure container. When you want to access one, you open it with your password to manage its contents, just like mounting a private file system.
+**Important**: This is filename disguise, not true file format mimicry. Technical inspection (`file` command) will show it's encrypted data. But for everyday privacy - shared computers, cloud storage, basic inspection - the innocent filename provides excellent camouflage.
 
-2.  **Fill Them Up:** Pack each container with as many private files as you need: documents, photos, videos, and even entire folders. They are all stored neatly inside that one file.
+The real magic is the **dual-volume encryption** that lets you hide a second encrypted space inside the same file.
 
-3.  **Disguise Them:** This is where the magic happens. You can name each container file anything you want, like `vacation_photos.jpg` or `project_report.pdf`. To your operating system and anyone else, they look and behave just like normal, innocent files.
+## The Hidden Compartment Trick
 
-4.  **Keep Them Private & Portable:** Everything inside is powerfully encrypted. The only way to see the contents is with your password. Since each container is just a single file, you can easily copy them to a USB drive, back them up, or share them with others.
+Every KURPOD container has **two encrypted volumes**:
+- **Password #1**: Opens decoy files (fake spreadsheets, boring documents)  
+- **Password #2**: Opens your real files (private photos, crypto wallets, sensitive docs)
 
-### **The Hidden Compartment: Ultimate Plausible Deniability**
+Someone forces you to unlock it? Give them Password #1. They see innocent files. Your real data stays completely hidden in a second encrypted volume.
 
-This is Kurpod's most powerful feature. Every Kurpod file you create actually contains a secret, secondary storage space inside it.
+```
+my_vacation.jpg  (2.3MB encrypted container)
+├── Password "summer2023" → Decoy: 25 vacation photos
+└── Password "dolphins847" → Hidden: crypto keys, private documents, job applications
+```
 
-You set **two different passwords** for the same file:
-
-*   **Password #1 (The Decoy):** Unlocks a "public-facing" space. You can fill this with plausible, everyday files that you wouldn't mind showing someone.
-*   **Password #2 (The Real Deal):** Unlocks the hidden compartment containing your most sensitive data.
-
-If you are ever forced to reveal a password, you can give up the decoy one. The other person will see a perfectly normal set of files and will have no way of knowing that a second, completely separate set of data is secretly hidden within the very same file, appearing as nothing more than random, unreadable data.
+**What they see**: Vacation photos in a JPEG file  
+**What you know**: Dual-encrypted vault with everything that matters
 
 
 ## How it works
@@ -50,6 +55,7 @@ https://github.com/user-attachments/assets/467464f6-91fe-48e1-b7fb-bd431302d7a3
 ### Encryption
 - Password hashing: Argon2id (64MB memory, 3 iterations)
 - File encryption: XChaCha20-Poly1305 (256-bit keys, 192-bit nonces)
+- No external dependencies or databases (~2.5MB)
 - Built in Rust
 ---
 
@@ -152,34 +158,6 @@ sudo rm -f /usr/local/bin/kurpod_server
 
 ---
 
-## Features
-
-### Security & Privacy
-- **Zero-knowledge architecture** - Server never sees unencrypted data
-- **Modern encryption** - XChaCha20-Poly1305 with 256-bit keys
-- **Strong key derivation** - Argon2id with 64MB memory cost
-- **Plausible deniability** - Hidden volumes indistinguishable from random data
-- **Session-based security** - Split-key authentication with automatic cleanup
-- **Memory protection** - Cryptographic material zeroized on timeout
-- **File integrity** - Authenticated encryption prevents tampering
-- **No metadata leakage** - Filenames, sizes, and structure encrypted
-
-### User Experience
-- **Dark/light themes** - System-aware with manual toggle
-- **Multi-format preview** - Images, videos, PDFs, text, and audio
-- **Mobile-responsive** - Full functionality on phones and tablets
-- **File organization** - Folders, search, sorting, and batch operations
-
-### Performance & Technical
-- **Concurrent sessions** - Multiple users with isolated authentication
-- **Efficient storage** - Deduplication and compression
-- **Single binary** - No external dependencies or databases (~2.5MB)
-- **Container-optimized** - Multi-arch Docker images (~4.8MB)
-- **Structured logging** - Configurable log levels and health checks
-- **Cross-platform** - Linux, macOS, Windows (Intel and ARM)
-
----
-
 ## How It Works
 
 ### Simple Setup
@@ -211,79 +189,6 @@ sudo rm -f /usr/local/bin/kurpod_server
 - Provides cryptographic deniability under coercion
 - Independent encryption keys and data structures
 ---
-
-## Installation Options
-
-### Docker Installation
-
-#### Basic Usage
-```bash
-# Pull and run latest version
-docker run -p 3000:3000 ghcr.io/srv1n/kurpod:latest
-
-# With persistent storage
-mkdir -p ./kurpod-data
-docker run -p 3000:3000 -v ./kurpod-data:/app/data ghcr.io/srv1n/kurpod:latest
-
-# Custom port and configuration
-docker run -p 8080:8080 -v ./kurpod-data:/app/data ghcr.io/srv1n/kurpod:latest --port 8080
-```
-
-#### Docker Compose
-```yaml
-# docker-compose.yml
-version: '3.8'
-services:
-  kurpod:
-    image: ghcr.io/srv1n/kurpod:latest
-    ports:
-      - "3000:3000"
-    volumes:
-      - ./data:/app/data
-    restart: unless-stopped
-    command: ["--port", "3000", "--blob", "/app/data/storage.blob"]
-```
-
-#### Available Tags
-- `latest` - Latest stable release
-- `v1.0.0` - Specific version tags
-- `main` - Development builds (not recommended for production)
-
-**Registry**: GitHub Container Registry (GHCR) - https://github.com/srv1n/kurpod/pkgs/container/kurpod
-
-### Binary Installation
-
-#### macOS (Homebrew - Recommended)
-```bash
-# Add tap and install
-brew tap srv1n/kurpod https://github.com/srv1n/kurpod.git
-brew install kurpod
-
-# Start server
-kurpod_server
-
-# Access at http://localhost:3000
-# Update later
-brew update && brew upgrade kurpod
-```
-
-#### Linux / macOS (Install Script)
-```bash
-# Download auto-installer
-curl -sSf https://github.com/srv1n/kurpod/releases/latest/download/install.sh | bash
-
-# Or manual download and extract
-wget https://github.com/srv1n/kurpod/releases/latest/download/kurpod-v1.0.0-linux-x86_64.tar.gz
-tar -xzf kurpod-v1.0.0-linux-x86_64.tar.gz
-chmod +x kurpod_server
-./kurpod_server
-```
-
-#### Windows
-1. Download `kurpod-v*-windows-x86_64.zip` from [releases](https://github.com/srv1n/kurpod/releases)
-2. Extract the ZIP file
-3. Run `kurpod_server.exe`
-4. Open browser to `http://localhost:3000`
 
 ### Build from Source
 
@@ -330,24 +235,6 @@ cargo build --release -p kurpod_server
 # Show all options
 ./kurpod_server --help
 ```
-
-### Security Recommendations
-
-#### Network Security
-- **Use HTTPS**: Deploy behind a reverse proxy (nginx, Caddy, Traefik) with SSL/TLS
-- **Firewall**: Restrict access to trusted networks
-- **VPN**: Consider VPN access for remote usage
-
-#### Storage Security
-- **Backup**: Regularly backup your blob files
-- **Storage**: Use encrypted storage (LUKS, FileVault, BitLocker) for additional protection
-- **Permissions**: Restrict file permissions on blob files (`chmod 600`)
-
-#### Operational Security
-- **Passwords**: Use strong, unique passwords for both standard and hidden volumes
-- **Sessions**: Log out when finished (automatic timeout after 15 minutes)
-- **Updates**: Keep KURPOD updated to the latest version
-
 ---
 
 ## Performance & Sizing
@@ -372,7 +259,7 @@ cargo build --release -p kurpod_server
 
 ## Project Status
 
-This is the **initial open source release** of KURPOD. While the core functionality is working and tested, we consider this an early version and welcome community feedback.
+This is the **initial open source release** of KURPOD. Expect bugs. Please report them through issues. 
 
 ### What's Working
 - **Session-based authentication** - Split-key security with token management
@@ -388,6 +275,7 @@ This is the **initial open source release** of KURPOD. While the core functional
 - **No built-in TLS** - Requires reverse proxy for HTTPS
 - **Web-only interface** - No native mobile apps yet
 - **Manual backups** - No automated backup system
+- **Platform testing** - I've tested on Mac extensively. Other platforms not much. 
 
 ---
 
@@ -410,7 +298,7 @@ gpg --verify kurpod_server.asc kurpod_server
 ### Code Signing
 - **macOS**: Binaries are signed with Apple Developer ID and notarized
 - **Linux**: Binaries include detached GPG signatures
-- **Windows**: Authenticode signing planned for v1.0
+- **Windows**: Currently unsigned. Authenticode signing planned for v1.0
 
 ---
 
@@ -435,26 +323,6 @@ cd frontend && bun dev
 # Run tests
 cargo test
 cd frontend && bun test
-```
-
-### Testing & Quality Assurance
-```bash
-# Comprehensive test suite
-cargo test                                    # All tests
-cargo test --package encryption_core         # Cryptographic tests
-cargo test session::tests::security_comprehensive_test  # Security tests
-cargo test session::tests::load_test_multiple_sessions  # Load tests
-
-# Frontend testing
-cd frontend && bun test                       # Unit tests with Vitest
-cd frontend && bun test:coverage              # Coverage reports
-cd frontend && bun lint                       # ESLint + Prettier
-cd frontend && bun lint:fix                   # Auto-fix issues
-
-# Rust quality checks
-cargo clippy                                  # Advanced linting
-cargo fmt                                     # Code formatting
-cargo audit                                   # Security audit
 ```
 
 ### Project Architecture
