@@ -21,10 +21,11 @@ use axum::{
     Json,
 };
 use axum_extra::extract::Multipart;
+use base64::{engine::general_purpose, Engine as _};
 use clap::Parser;
 use encryption_core::{
-    add_file, compact_blob, get_file, init_blob, remove_file, remove_folder, rename_file,
-    unlock_blob,
+    add_file, compact_blob, get_file, init_blob, init_stego_blob, remove_file, remove_folder,
+    rename_file, unlock_blob, unlock_stego_blob, PngChunkCarrier,
 };
 use local_ip_address::local_ip;
 use log;
@@ -109,6 +110,10 @@ struct InitPayload {
     #[allow(dead_code)]
     blob_path: Option<String>, // Optional blob path override (single mode only)
     blob_name: Option<String>,  // Optional blob name (directory mode only)
+
+    // Steganography options
+    steganographic: Option<bool>, // Whether to create steganographic blob
+    carrier_data: Option<String>, // Base64 encoded carrier file (for PNG steganography)
 }
 
 /// Unlock payload
@@ -569,11 +574,66 @@ async fn init_handler(
 
     println!("Using provided password for standard volume.");
 
+    // Check if this is a steganographic blob creation
+    let init_result = if payload.steganographic.unwrap_or(false) {
+        // Steganographic blob creation
+        match payload.carrier_data {
+            Some(carrier_base64) => {
+                // Decode the base64 carrier data
+                match general_purpose::STANDARD.decode(&carrier_base64) {
+                    Ok(carrier_bytes) => {
+                        // Create a temporary file for the carrier
+                        let temp_dir = std::env::temp_dir();
+                        let carrier_path =
+                            temp_dir.join(format!("kurpod_carrier_{}.png", rand::random::<u64>()));
+
+                        match std::fs::write(&carrier_path, carrier_bytes) {
+                            Ok(()) => {
+                                // Initialize steganographic blob
+                                let carrier = PngChunkCarrier::new();
+                                let result = init_stego_blob(
+                                    &carrier_path,
+                                    &blob_path,
+                                    &carrier,
+                                    &password_s,
+                                    &password_h_final,
+                                );
+
+                                // Clean up temporary carrier file
+                                std::fs::remove_file(&carrier_path).ok();
+
+                                result
+                            }
+                            Err(e) => Err(anyhow::anyhow!("Failed to write carrier file: {}", e)),
+                        }
+                    }
+                    Err(e) => Err(anyhow::anyhow!("Invalid base64 carrier data: {}", e)),
+                }
+            }
+            None => Err(anyhow::anyhow!(
+                "Carrier data required for steganographic blob"
+            )),
+        }
+    } else {
+        // Regular blob creation
+        init_blob(&blob_path, &password_s, &password_h_final)
+    };
+
     // Initialize new blob with both passwords
-    match init_blob(&blob_path, &password_s, &password_h_final) {
+    match init_result {
         Ok(()) => {
             // Unlock immediately using the standard password to get initial state
-            match unlock_blob(&blob_path, &password_s) {
+            // Use auto-detection logic (try regular first, then steganographic)
+            let unlock_result = match unlock_blob(&blob_path, &password_s) {
+                Ok(result) => Ok(result),
+                Err(_) => {
+                    // If normal blob unlock fails, try steganography auto-detection
+                    let carriers = vec![PngChunkCarrier::new()];
+                    unlock_stego_blob(&blob_path, &carriers, &password_s)
+                }
+            };
+
+            match unlock_result {
                 Ok((volume_type, key, metadata)) => {
                     // Create session instead of storing in global state
                     match app_context.app_state.session_manager.create_session(
@@ -707,8 +767,18 @@ async fn unlock_handler(
 
     println!("Unlocking blob at: {}", blob_path.display());
 
-    // Unlock blob and get metadata
-    match unlock_blob(&blob_path, &payload.password) {
+    // Try to unlock blob - first as normal blob, then as steganographic blob
+    let unlock_result = match unlock_blob(&blob_path, &payload.password) {
+        Ok(result) => Ok(result),
+        Err(_) => {
+            // If normal blob unlock fails, try steganography auto-detection
+            let carriers = vec![PngChunkCarrier::new()];
+            unlock_stego_blob(&blob_path, &carriers, &payload.password)
+        }
+    };
+
+    // Process unlock result
+    match unlock_result {
         Ok((volume_type, key, metadata)) => {
             // Create session
             match app_context.app_state.session_manager.create_session(

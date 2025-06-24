@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { X } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import { X, ChevronDown, ChevronUp, Info } from 'lucide-react';
 import { toast } from 'sonner';
 import {
     Dialog,
@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Separator } from '@/components/ui/separator';
 
 export function CreateBlobModal({ isOpen, onClose, onSuccess }) {
     const [blobName, setBlobName] = useState('');
@@ -20,6 +21,12 @@ export function CreateBlobModal({ isOpen, onClose, onSuccess }) {
     const [passwordH, setPasswordH] = useState('');
     const [useHiddenVolume, setUseHiddenVolume] = useState(false);
     const [loading, setLoading] = useState(false);
+    
+    // Advanced options state
+    const [showAdvanced, setShowAdvanced] = useState(false);
+    const [useSteganography, setUseSteganography] = useState(false);
+    const [carrierFile, setCarrierFile] = useState(null);
+    const fileInputRef = useRef(null);
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -44,14 +51,35 @@ export function CreateBlobModal({ isOpen, onClose, onSuccess }) {
             return;
         }
 
+        if (useSteganography && !carrierFile) {
+            toast.error('Please select a PNG image file for steganography');
+            return;
+        }
+
         setLoading(true);
 
         try {
             const payload = {
                 password_s: passwordS,
                 password_h: useHiddenVolume ? passwordH : null,
-                blob_name: blobName.trim()
+                blob_name: blobName.trim(),
+                steganographic: useSteganography,
             };
+
+            // If using steganography, convert carrier file to base64
+            if (useSteganography && carrierFile) {
+                const reader = new FileReader();
+                const carrierBase64 = await new Promise((resolve, reject) => {
+                    reader.onload = () => {
+                        // Remove data:image/png;base64, prefix
+                        const base64 = reader.result.split(',')[1];
+                        resolve(base64);
+                    };
+                    reader.onerror = reject;
+                    reader.readAsDataURL(carrierFile);
+                });
+                payload.carrier_data = carrierBase64;
+            }
 
             const response = await fetch('/api/init', {
                 method: 'POST',
@@ -81,8 +109,26 @@ export function CreateBlobModal({ isOpen, onClose, onSuccess }) {
         setPasswordS('');
         setPasswordH('');
         setUseHiddenVolume(false);
+        setShowAdvanced(false);
+        setUseSteganography(false);
+        setCarrierFile(null);
         setLoading(false);
         onClose();
+    };
+
+    const handleCarrierFileChange = (event) => {
+        const file = event.target.files[0];
+        if (file) {
+            if (!file.type.startsWith('image/')) {
+                toast.error('Please select a valid image file');
+                return;
+            }
+            if (file.size > 10 * 1024 * 1024) { // 10MB limit
+                toast.error('Carrier file must be smaller than 10MB');
+                return;
+            }
+            setCarrierFile(file);
+        }
     };
 
     return (
@@ -165,6 +211,83 @@ export function CreateBlobModal({ isOpen, onClose, onSuccess }) {
                             </p>
                         </div>
                     )}
+
+                    <Separator />
+
+                    {/* Advanced Options */}
+                    <div className="space-y-3">
+                        <button
+                            type="button"
+                            onClick={() => setShowAdvanced(!showAdvanced)}
+                            className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+                            disabled={loading}
+                        >
+                            {showAdvanced ? (
+                                <ChevronUp className="h-4 w-4" />
+                            ) : (
+                                <ChevronDown className="h-4 w-4" />
+                            )}
+                            Advanced Options
+                        </button>
+
+                        {showAdvanced && (
+                            <div className="space-y-4 border-l-2 border-muted pl-4">
+                                {/* Steganography Option */}
+                                <div className="space-y-3">
+                                    <div className="flex items-center space-x-2">
+                                        <Checkbox
+                                            id="useSteganography"
+                                            checked={useSteganography}
+                                            onCheckedChange={(checked) => {
+                                                setUseSteganography(checked);
+                                                if (!checked) {
+                                                    setCarrierFile(null);
+                                                }
+                                            }}
+                                            disabled={loading}
+                                        />
+                                        <Label htmlFor="useSteganography" className="text-sm">
+                                            Use steganography (hide blob in image)
+                                        </Label>
+                                        <div className="group relative">
+                                            <Info className="h-4 w-4 text-muted-foreground cursor-help" />
+                                            <div className="absolute left-full ml-2 bottom-0 hidden group-hover:block z-50 w-64 p-2 bg-popover border rounded-md shadow-md text-xs">
+                                                Creates a PNG image that looks normal but contains your encrypted data hidden inside. More secure against detection.
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {useSteganography && (
+                                        <div className="space-y-2">
+                                            <Label htmlFor="carrierFile">Carrier Image (PNG)</Label>
+                                            <div className="space-y-2">
+                                                <input
+                                                    ref={fileInputRef}
+                                                    type="file"
+                                                    accept="image/*"
+                                                    onChange={handleCarrierFileChange}
+                                                    className="hidden"
+                                                    disabled={loading}
+                                                />
+                                                <Button
+                                                    type="button"
+                                                    variant="outline"
+                                                    onClick={() => fileInputRef.current?.click()}
+                                                    disabled={loading}
+                                                    className="w-full"
+                                                >
+                                                    {carrierFile ? `Selected: ${carrierFile.name}` : 'Choose Image File'}
+                                                </Button>
+                                            </div>
+                                            <p className="text-xs text-muted-foreground">
+                                                Select a PNG image to use as a carrier. The image will remain viewable while hiding your encrypted data.
+                                            </p>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+                    </div>
 
                     <DialogFooter>
                         <Button
