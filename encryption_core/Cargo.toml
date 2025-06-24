@@ -19,9 +19,15 @@ env_logger = "0.11" # Added for logging implementation (can be swapped)
 aes-gcm = "0.10.3"
 thiserror = "1.0.61"
 hex = "0.4.3"
+png = "0.17.10"
+crc32fast = "1.3.2"
 
 [dev-dependencies]
 tempfile = { workspace = true }
+
+[[bin]]
+name = "png_stego_demo"
+path = "examples/png_stego_demo.rs"
 
 # Ensure features needed by the crate are enabled if using workspace versions
 # e.g., serde = { workspace = true, features = ["derive"] }

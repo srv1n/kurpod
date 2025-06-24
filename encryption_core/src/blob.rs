@@ -1,3 +1,4 @@
+use crate::steganography::StegoCarrier;
 use anyhow::{anyhow, Result};
 use argon2::{Argon2, Params};
 use chacha20poly1305::{
@@ -954,4 +955,207 @@ pub fn compact_blob(path: &Path, password_s: &str, password_h: &str) -> Result<(
     fs::remove_file(&backup_path)?;
 
     Ok(())
+}
+
+/// Creates a steganographic blob by embedding the encrypted data into a carrier file
+///
+/// # Arguments
+/// * `carrier_path` - Path to the carrier file (e.g., a PNG image)
+/// * `output_path` - Path where the steganographic file will be saved
+/// * `carrier` - The steganography implementation to use
+/// * `password_s` - Password for the standard (decoy) volume
+/// * `password_h` - Password for the hidden volume
+pub fn init_stego_blob<C: StegoCarrier>(
+    carrier_path: &Path,
+    output_path: &Path,
+    carrier: &C,
+    password_s: &str,
+    password_h: &str,
+) -> Result<()> {
+    // Read the carrier file
+    let carrier_bytes =
+        fs::read(carrier_path).map_err(|e| anyhow!("Failed to read carrier file: {}", e))?;
+
+    // Check capacity
+    let capacity = carrier.capacity(&carrier_bytes);
+    if capacity == 0 {
+        return Err(anyhow!("Invalid carrier file or no capacity"));
+    }
+
+    // Create a temporary blob file
+    let temp_dir = std::env::temp_dir();
+    let temp_blob = temp_dir.join(format!("kurpod_temp_{}.blob", rand::random::<u64>()));
+
+    // Initialize the blob normally
+    init_blob(&temp_blob, password_s, password_h)?;
+
+    // Read the created blob
+    let blob_data = fs::read(&temp_blob)?;
+
+    // Check if the blob fits in the carrier
+    if blob_data.len() > capacity {
+        fs::remove_file(&temp_blob).ok(); // Clean up
+        return Err(anyhow!(
+            "Blob size ({} bytes) exceeds carrier capacity ({} bytes)",
+            blob_data.len(),
+            capacity
+        ));
+    }
+
+    // Embed the blob in the carrier
+    let stego_data = carrier.embed(&carrier_bytes, &blob_data)?;
+
+    // Write the steganographic file
+    fs::write(output_path, stego_data)
+        .map_err(|e| anyhow!("Failed to write steganographic file: {}", e))?;
+
+    // Clean up temporary file
+    fs::remove_file(&temp_blob).ok();
+
+    Ok(())
+}
+
+/// Attempts to unlock a steganographic blob using various carriers
+///
+/// # Arguments
+/// * `stego_path` - Path to the steganographic file
+/// * `carriers` - Vector of carriers to try for extraction
+/// * `password` - The password attempt
+///
+/// # Returns
+/// On success: `Ok((VolumeType, derived_key, metadata_map))`
+/// On failure: `Err` if no carrier can extract a valid blob or password doesn't match
+pub fn unlock_stego_blob<C: StegoCarrier>(
+    stego_path: &Path,
+    carriers: &[C],
+    password: &str,
+) -> Result<(VolumeType, [u8; 32], MetadataMap)> {
+    // Read the steganographic file
+    let stego_data =
+        fs::read(stego_path).map_err(|e| anyhow!("Failed to read steganographic file: {}", e))?;
+
+    // Try each carrier to extract the blob
+    for carrier in carriers {
+        if let Some(blob_data) = carrier.extract(&stego_data) {
+            // Create a temporary file with the extracted blob
+            let temp_dir = std::env::temp_dir();
+            let temp_blob = temp_dir.join(format!("kurpod_extract_{}.blob", rand::random::<u64>()));
+
+            if fs::write(&temp_blob, blob_data).is_ok() {
+                // Try to unlock the extracted blob
+                match unlock_blob(&temp_blob, password) {
+                    Ok(result) => {
+                        fs::remove_file(&temp_blob).ok(); // Clean up
+                        return Ok(result);
+                    }
+                    Err(_) => {
+                        // This carrier extracted something, but it's not a valid blob with this password
+                        // Continue trying other carriers
+                    }
+                }
+                fs::remove_file(&temp_blob).ok(); // Clean up
+            }
+        }
+    }
+
+    // If no carrier worked, try the file as a regular blob (backwards compatibility)
+    unlock_blob(stego_path, password)
+}
+
+/// Adds a file to a steganographic blob
+///
+/// NOTE: This is a simplified implementation that recreates the steganographic file.
+/// For production use, you might want to store the original carrier separately or
+/// implement a more sophisticated approach to preserve the exact original carrier.
+///
+/// # Arguments
+/// * `stego_path` - Path to the steganographic file
+/// * `original_carrier_path` - Path to the original carrier file (needed for proper re-embedding)
+/// * `carrier` - The carrier used for this steganographic file
+/// * `volume_type` - Which volume is currently unlocked
+/// * `key` - The derived key for the unlocked volume
+/// * `metadata_map` - Mutable reference to the metadata map
+/// * `file_path` - Path where the file should be stored in the blob
+/// * `content` - File content to add
+/// * `mime_type` - MIME type of the file
+pub fn add_file_stego<C: StegoCarrier>(
+    stego_path: &Path,
+    original_carrier_path: &Path,
+    carrier: &C,
+    volume_type: VolumeType,
+    key: &[u8; 32],
+    metadata_map: &mut MetadataMap,
+    file_path: &str,
+    content: &[u8],
+    mime_type: &str,
+) -> Result<()> {
+    // Read the steganographic file
+    let stego_data = fs::read(stego_path)?;
+
+    // Extract the blob
+    let blob_data = carrier
+        .extract(&stego_data)
+        .ok_or_else(|| anyhow!("Failed to extract blob from steganographic file"))?;
+
+    // Create temporary blob file
+    let temp_dir = std::env::temp_dir();
+    let temp_blob = temp_dir.join(format!("kurpod_modify_{}.blob", rand::random::<u64>()));
+    fs::write(&temp_blob, blob_data)?;
+
+    // Add the file to the blob
+    add_file(
+        &temp_blob,
+        volume_type,
+        key,
+        metadata_map,
+        file_path,
+        content,
+        mime_type,
+    )?;
+
+    // Read the updated blob
+    let updated_blob = fs::read(&temp_blob)?;
+
+    // Read the original carrier (clean carrier without embedded data)
+    let original_carrier_data = fs::read(original_carrier_path)?;
+
+    // Re-embed the updated blob in the original carrier
+    let updated_stego = carrier.embed(&original_carrier_data, &updated_blob)?;
+
+    // Write back the steganographic file
+    fs::write(stego_path, updated_stego)?;
+
+    // Clean up
+    fs::remove_file(&temp_blob).ok();
+
+    Ok(())
+}
+
+/// Retrieves a file from a steganographic blob
+pub fn get_file_stego<C: StegoCarrier>(
+    stego_path: &Path,
+    carrier: &C,
+    key: &[u8; 32],
+    metadata: &FileMetadata,
+) -> Result<Vec<u8>> {
+    // Read the steganographic file
+    let stego_data = fs::read(stego_path)?;
+
+    // Extract the blob
+    let blob_data = carrier
+        .extract(&stego_data)
+        .ok_or_else(|| anyhow!("Failed to extract blob from steganographic file"))?;
+
+    // Create temporary blob file
+    let temp_dir = std::env::temp_dir();
+    let temp_blob = temp_dir.join(format!("kurpod_read_{}.blob", rand::random::<u64>()));
+    fs::write(&temp_blob, blob_data)?;
+
+    // Get the file from the blob
+    let result = get_file(&temp_blob, key, metadata);
+
+    // Clean up
+    fs::remove_file(&temp_blob).ok();
+
+    result
 }
