@@ -24,8 +24,8 @@ use axum_extra::extract::Multipart;
 use base64::{engine::general_purpose, Engine as _};
 use clap::Parser;
 use encryption_core::{
-    add_file, compact_blob, get_file, init_blob, init_stego_blob, remove_file, remove_folder,
-    rename_file, unlock_blob, unlock_stego_blob, PngChunkCarrier,
+    add_file, add_file_stego, compact_blob, get_file, get_file_stego, init_blob, init_stego_blob,
+    remove_file, remove_folder, rename_file, unlock_blob, unlock_stego_blob, PngChunkCarrier,
 };
 use local_ip_address::local_ip;
 use log;
@@ -479,6 +479,75 @@ fn extract_user_agent(headers: &axum::http::HeaderMap) -> Option<String> {
         .map(|s| s.to_string())
 }
 
+/// Helper function to add files with session-aware steganography support
+fn session_add_file(
+    session: &session::Session,
+    derived_key: &[u8; 32],
+    metadata: &mut encryption_core::MetadataMap,
+    file_path: &str,
+    content: &[u8],
+    mime_type: &str,
+) -> anyhow::Result<()> {
+    if session.is_steganographic {
+        if let Some(ref carrier_path) = session.original_carrier_path {
+            let carrier = PngChunkCarrier::new();
+            add_file_stego(
+                &session.blob_path,
+                carrier_path,
+                &carrier,
+                session.volume_type,
+                derived_key,
+                metadata,
+                file_path,
+                content,
+                mime_type,
+            )
+        } else {
+            // Fallback to regular add_file if no carrier path
+            add_file(
+                &session.blob_path,
+                session.volume_type,
+                derived_key,
+                metadata,
+                file_path,
+                content,
+                mime_type,
+            )
+        }
+    } else {
+        // Regular file operation
+        add_file(
+            &session.blob_path,
+            session.volume_type,
+            derived_key,
+            metadata,
+            file_path,
+            content,
+            mime_type,
+        )
+    }
+}
+
+/// Helper function to get files with session-aware steganography support
+fn session_get_file(
+    session: &session::Session,
+    derived_key: &[u8; 32],
+    metadata: &encryption_core::FileMetadata,
+) -> anyhow::Result<Vec<u8>> {
+    if session.is_steganographic {
+        if let Some(ref _carrier_path) = session.original_carrier_path {
+            let carrier = PngChunkCarrier::new();
+            get_file_stego(&session.blob_path, &carrier, derived_key, metadata)
+        } else {
+            // Fallback to regular get_file
+            get_file(&session.blob_path, derived_key, metadata)
+        }
+    } else {
+        // Regular file operation
+        get_file(&session.blob_path, derived_key, metadata)
+    }
+}
+
 async fn init_handler(
     Extension(app_context): Extension<AppContext>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
@@ -574,10 +643,14 @@ async fn init_handler(
 
     println!("Using provided password for standard volume.");
 
+    // Extract steganography parameters upfront to avoid borrow checker issues
+    let is_stego = payload.steganographic.unwrap_or(false);
+    let carrier_data = payload.carrier_data.clone();
+
     // Check if this is a steganographic blob creation
-    let init_result = if payload.steganographic.unwrap_or(false) {
+    let init_result = if is_stego {
         // Steganographic blob creation
-        match payload.carrier_data {
+        match carrier_data.as_ref() {
             Some(carrier_base64) => {
                 // Decode the base64 carrier data
                 match general_purpose::STANDARD.decode(&carrier_base64) {
@@ -635,15 +708,83 @@ async fn init_handler(
 
             match unlock_result {
                 Ok((volume_type, key, metadata)) => {
-                    // Create session instead of storing in global state
-                    match app_context.app_state.session_manager.create_session(
-                        key,
-                        blob_path.clone(),
-                        metadata.clone(),
-                        volume_type,
-                        client_ip,
-                        user_agent,
-                    ) {
+                    // Use previously extracted steganography parameters
+
+                    // Create session - check if this is a steganographic blob
+                    let session_result = if is_stego {
+                        // This is a steganographic session, store original carrier path
+                        if let Some(carrier_base64) = carrier_data {
+                            // Decode and store carrier as temp file for the session
+                            match general_purpose::STANDARD.decode(&carrier_base64) {
+                                Ok(carrier_bytes) => {
+                                    let temp_dir = std::env::temp_dir();
+                                    let session_carrier_path = temp_dir.join(format!(
+                                        "kurpod_session_carrier_{}.png",
+                                        rand::random::<u64>()
+                                    ));
+
+                                    match std::fs::write(&session_carrier_path, carrier_bytes) {
+                                        Ok(()) => app_context
+                                            .app_state
+                                            .session_manager
+                                            .create_stego_session(
+                                                key,
+                                                blob_path.clone(),
+                                                metadata.clone(),
+                                                volume_type,
+                                                client_ip,
+                                                user_agent,
+                                                session_carrier_path,
+                                            ),
+                                        Err(_) => {
+                                            // Fall back to regular session
+                                            app_context.app_state.session_manager.create_session(
+                                                key,
+                                                blob_path.clone(),
+                                                metadata.clone(),
+                                                volume_type,
+                                                client_ip,
+                                                user_agent,
+                                            )
+                                        }
+                                    }
+                                }
+                                Err(_) => {
+                                    // Fall back to regular session
+                                    app_context.app_state.session_manager.create_session(
+                                        key,
+                                        blob_path.clone(),
+                                        metadata.clone(),
+                                        volume_type,
+                                        client_ip,
+                                        user_agent,
+                                    )
+                                }
+                            }
+                        } else {
+                            // No carrier data, fall back to regular session
+                            app_context.app_state.session_manager.create_session(
+                                key,
+                                blob_path.clone(),
+                                metadata.clone(),
+                                volume_type,
+                                client_ip,
+                                user_agent,
+                            )
+                        }
+                    } else {
+                        // Regular session
+                        app_context.app_state.session_manager.create_session(
+                            key,
+                            blob_path.clone(),
+                            metadata.clone(),
+                            volume_type,
+                            client_ip,
+                            user_agent,
+                        )
+                    };
+
+                    match session_result {
                         Ok(token) => {
                             let files = metadata
                                 .iter()
@@ -780,15 +921,37 @@ async fn unlock_handler(
     // Process unlock result
     match unlock_result {
         Ok((volume_type, key, metadata)) => {
+            // Check if this was unlocked as a steganographic blob
+            let was_unlocked_as_stego = match unlock_blob(&blob_path, &payload.password) {
+                Ok(_) => false, // Successfully unlocked as regular blob
+                Err(_) => true, // Had to use steganography auto-detection
+            };
+
             // Create session
-            match app_context.app_state.session_manager.create_session(
-                key,
-                blob_path.clone(),
-                metadata.clone(),
-                volume_type,
-                client_ip,
-                user_agent,
-            ) {
+            let session_result = if was_unlocked_as_stego {
+                // Create steganographic session - we'll use the blob file itself as carrier
+                app_context.app_state.session_manager.create_stego_session(
+                    key,
+                    blob_path.clone(),
+                    metadata.clone(),
+                    volume_type,
+                    client_ip,
+                    user_agent,
+                    blob_path.clone(), // Use the stego file as its own carrier
+                )
+            } else {
+                // Regular session
+                app_context.app_state.session_manager.create_session(
+                    key,
+                    blob_path.clone(),
+                    metadata.clone(),
+                    volume_type,
+                    client_ip,
+                    user_agent,
+                )
+            };
+
+            match session_result {
                 Ok(token) => {
                     let files = metadata
                         .iter()
@@ -1004,7 +1167,7 @@ async fn stream_handler_impl(
     {
         match session.metadata.get(&file_id) {
             Some(metadata) => {
-                match get_file(&session.blob_path, &auth.derived_key, metadata) {
+                match session_get_file(&session, &auth.derived_key, metadata) {
                     Ok(content) => {
                         let content_length = content.len();
                         let mime = from_path(&file_id).first_or_octet_stream();
@@ -1131,7 +1294,7 @@ async fn thumbnail_handler_impl(
                     return (StatusCode::BAD_REQUEST, Json(resp)).into_response();
                 }
 
-                match get_file(&session.blob_path, &auth.derived_key, metadata) {
+                match session_get_file(&session, &auth.derived_key, metadata) {
                     Ok(content) => {
                         // For now, return the original image as thumbnail
                         // In a full implementation, you'd use an image processing library
@@ -1522,7 +1685,7 @@ async fn download_query_handler(
         .get_session(&auth.session_id)
     {
         match session.metadata.get(&params.path) {
-            Some(metadata) => match get_file(&session.blob_path, &auth.derived_key, metadata) {
+            Some(metadata) => match session_get_file(&session, &auth.derived_key, metadata) {
                 Ok(content) => {
                     let mime = from_path(&params.path).first_or_octet_stream();
                     Response::builder()
@@ -1576,7 +1739,7 @@ async fn download_handler_impl(
         .get_session(&auth.session_id)
     {
         match session.metadata.get(&file_id) {
-            Some(metadata) => match get_file(&session.blob_path, &auth.derived_key, metadata) {
+            Some(metadata) => match session_get_file(&session, &auth.derived_key, metadata) {
                 Ok(content) => {
                     let mime = from_path(&file_id).first_or_octet_stream();
                     Response::builder()
@@ -1733,9 +1896,8 @@ async fn upload_handler(
                     );
 
                     let mime_type = from_path(&filename).first_or_octet_stream();
-                    match add_file(
-                        &session.blob_path,
-                        session.volume_type,
+                    match session_add_file(
+                        &session,
                         &auth.derived_key,
                         &mut metadata,
                         &file_path,

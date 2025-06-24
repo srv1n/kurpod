@@ -22,6 +22,8 @@ pub struct Session {
     pub last_accessed: Instant,
     pub client_ip: Option<String>,
     pub user_agent: Option<String>,
+    pub is_steganographic: bool, // Track if this session uses steganography
+    pub original_carrier_path: Option<PathBuf>, // Path to original carrier for stego sessions
 }
 
 impl Session {
@@ -33,6 +35,29 @@ impl Session {
         volume_type: VolumeType,
         client_ip: Option<String>,
         user_agent: Option<String>,
+    ) -> (Self, [u8; 32]) {
+        Self::new_with_stego(
+            derived_key,
+            blob_path,
+            metadata,
+            volume_type,
+            client_ip,
+            user_agent,
+            false,
+            None,
+        )
+    }
+
+    /// Create a new session with steganography options
+    pub fn new_with_stego(
+        derived_key: [u8; 32],
+        blob_path: PathBuf,
+        metadata: MetadataMap,
+        volume_type: VolumeType,
+        client_ip: Option<String>,
+        user_agent: Option<String>,
+        is_steganographic: bool,
+        original_carrier_path: Option<PathBuf>,
     ) -> (Self, [u8; 32]) {
         // Generate random session ID
         let mut session_id_bytes = [0u8; 16];
@@ -60,6 +85,8 @@ impl Session {
             last_accessed: now,
             client_ip: client_ip.clone(),
             user_agent: user_agent.clone(),
+            is_steganographic,
+            original_carrier_path,
         };
 
         (session, client_key_part)
@@ -157,13 +184,62 @@ impl SessionManager {
         client_ip: Option<String>,
         user_agent: Option<String>,
     ) -> Result<String, &'static str> {
-        let (session, client_key_part) = Session::new(
+        self.create_session_internal(
+            derived_key,
+            blob_path,
+            metadata,
+            volume_type,
+            client_ip,
+            user_agent,
+            false,
+            None,
+        )
+    }
+
+    /// Create a new steganographic session
+    pub fn create_stego_session(
+        &self,
+        derived_key: [u8; 32],
+        blob_path: PathBuf,
+        metadata: MetadataMap,
+        volume_type: VolumeType,
+        client_ip: Option<String>,
+        user_agent: Option<String>,
+        original_carrier_path: PathBuf,
+    ) -> Result<String, &'static str> {
+        self.create_session_internal(
+            derived_key,
+            blob_path,
+            metadata,
+            volume_type,
+            client_ip,
+            user_agent,
+            true,
+            Some(original_carrier_path),
+        )
+    }
+
+    /// Internal session creation logic
+    fn create_session_internal(
+        &self,
+        derived_key: [u8; 32],
+        blob_path: PathBuf,
+        metadata: MetadataMap,
+        volume_type: VolumeType,
+        client_ip: Option<String>,
+        user_agent: Option<String>,
+        is_steganographic: bool,
+        original_carrier_path: Option<PathBuf>,
+    ) -> Result<String, &'static str> {
+        let (session, client_key_part) = Session::new_with_stego(
             derived_key,
             blob_path,
             metadata,
             volume_type,
             client_ip.clone(),
             user_agent.clone(),
+            is_steganographic,
+            original_carrier_path,
         );
 
         let session_id = session.session_id.clone();

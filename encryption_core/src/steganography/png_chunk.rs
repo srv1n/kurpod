@@ -119,6 +119,21 @@ impl PngChunkCarrier {
                 break;
             }
 
+            // Skip our custom chunks from the original PNG (remove old embedded data)
+            if type_bytes == self.chunk_type {
+                // Skip this chunk entirely (don't copy it)
+                let mut chunk_data = vec![0u8; length];
+                if cursor.read_exact(&mut chunk_data).is_err() {
+                    break;
+                }
+                // Skip CRC
+                let mut crc_bytes = [0u8; 4];
+                if cursor.read_exact(&mut crc_bytes).is_err() {
+                    break;
+                }
+                continue; // Skip to next chunk
+            }
+
             // If this is IDAT and we haven't inserted our chunks yet, insert them first
             if &type_bytes == b"IDAT" && !found_idat {
                 found_idat = true;
