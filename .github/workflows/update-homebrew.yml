@@ -6,15 +6,14 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to update formula for'
+        description: 'Version to update formula for (e.g., 0.1.3)'
         required: true
-        default: 'latest'
+        default: '0.1.3'
 
 jobs:
   update-homebrew-formula:
     name: Update Homebrew Formula
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -24,54 +23,135 @@ jobs:
       - name: Get version
         id: version
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.version }}" != "latest" ]; then
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
           else
+            # For release events, extract from tag
             echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
           fi
 
-      - name: Update Homebrew formula
+      - name: Download macOS artifacts (if they exist)
+        id: download
+        continue-on-error: true
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-          echo "🍺 Updating Homebrew formula for v$VERSION"
+          mkdir -p dist
           
-          # Run the update script
-          chmod +x scripts/update-homebrew-formula.sh
-          ./scripts/update-homebrew-formula.sh "$VERSION"
+          echo "🔍 Attempting to download macOS binaries for v$VERSION..."
+          
+          # Try to download the release artifacts
+          base="https://github.com/${{ github.repository }}/releases/download/v$VERSION"
+          
+          if curl -fLso dist/intel.tar.gz "$base/kurpod-v$VERSION-darwin-intel.tar.gz"; then
+            echo "✅ Downloaded Intel macOS binary"
+          else
+            echo "❌ Intel macOS binary not found - this is expected for manual testing"
+            echo "download_success=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          if curl -fLso dist/arm.tar.gz "$base/kurpod-v$VERSION-darwin-apple-silicon.tar.gz"; then
+            echo "✅ Downloaded Apple Silicon macOS binary"
+            echo "download_success=true" >> $GITHUB_OUTPUT
+          else
+            echo "❌ Apple Silicon macOS binary not found - this is expected for manual testing"
+            echo "download_success=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Calculate checksums or use placeholders
+        id: checksums
+        run: |
+          if [ "${{ steps.download.outputs.download_success }}" = "true" ]; then
+            echo "📊 Calculating real checksums..."
+            intel_sha=$(sha256sum dist/intel.tar.gz | cut -d' ' -f1)
+            arm_sha=$(sha256sum dist/arm.tar.gz | cut -d' ' -f1)
+            echo "intel_sha=$intel_sha" >> $GITHUB_OUTPUT
+            echo "arm_sha=$arm_sha" >> $GITHUB_OUTPUT
+            echo "using_real_checksums=true" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️  Using placeholder checksums (for testing)"
+            echo "intel_sha=INTEL_SHA256_PLACEHOLDER" >> $GITHUB_OUTPUT
+            echo "arm_sha=ARM_SHA256_PLACEHOLDER" >> $GITHUB_OUTPUT
+            echo "using_real_checksums=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Update formula
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          INTEL_SHA="${{ steps.checksums.outputs.intel_sha }}"
+          ARM_SHA="${{ steps.checksums.outputs.arm_sha }}"
+          
+          echo "🔧 Updating Formula/kurpod.rb..."
+          echo "   Version: $VERSION"
+          echo "   Intel SHA: $INTEL_SHA"
+          echo "   ARM SHA: $ARM_SHA"
+          
+          # Update the formula
+          sed -i "s/version \".*\"/version \"$VERSION\"/" Formula/kurpod.rb
+          sed -i "s/INTEL_SHA256_PLACEHOLDER/$INTEL_SHA/" Formula/kurpod.rb
+          sed -i "s/ARM_SHA256_PLACEHOLDER/$ARM_SHA/" Formula/kurpod.rb
+          
+          echo "✅ Formula updated"
+
+      - name: Show changes
+        run: |
+          echo "📋 Changes made to Formula/kurpod.rb:"
+          git diff Formula/kurpod.rb || echo "No changes detected"
 
       - name: Commit updated formula
         run: |
           VERSION="${{ steps.version.outputs.version }}"
+          USING_REAL="${{ steps.checksums.outputs.using_real_checksums }}"
           
           # Configure git
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           
-          # Commit changes
+          # Check if there are changes to commit
           git add Formula/kurpod.rb
           if git diff --staged --quiet; then
-            echo "No changes to commit"
+            echo "ℹ️  No changes to commit"
           else
-            git commit -m "Update Homebrew formula to v$VERSION [skip-ci]"
-            git push origin main
-            echo "✅ Updated Homebrew formula to v$VERSION"
+            if [ "$USING_REAL" = "true" ]; then
+              git commit -m "homebrew: bump formula to v$VERSION"
+              git push origin main
+              echo "✅ Committed and pushed changes to main branch"
+            else
+              echo "⚠️  Would commit (dry run - using placeholder checksums):"
+              git diff --staged
+              echo ""
+              echo "💡 To actually commit, re-run with a version that has published releases"
+            fi
           fi
 
       - name: Summary
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-          cat << EOF
-          ## 🍺 Homebrew Formula Updated
+          USING_REAL="${{ steps.checksums.outputs.using_real_checksums }}"
           
-          **Version**: v$VERSION
+          if [ "$USING_REAL" = "true" ]; then
+            cat << EOF
+          ## 🍺 Homebrew Formula Updated Successfully
           
-          **Users can now install with:**
+          **Version**: v$VERSION  
+          **Status**: ✅ Real checksums calculated and committed
+          
+          **Users can now install/upgrade with:**
           \`\`\`bash
-          brew install srv1n/kurpod/kurpod
-          \`\`\`
-          
-          **Or update existing installations:**
-          \`\`\`bash
-          brew update && brew upgrade kurpod
+          brew tap srv1n/kurpod https://github.com/srv1n/kurpod.git
+          brew install kurpod
+          # or: brew upgrade kurpod
           \`\`\`
           EOF
+          else
+            cat << EOF
+          ## 🧪 Homebrew Formula Test Run
+          
+          **Version**: v$VERSION  
+          **Status**: ⚠️ Test run with placeholder checksums (no commit made)
+          
+          **To complete the update:**
+          1. Ensure v$VERSION has published macOS release assets
+          2. Re-run this workflow or wait for the next release
+          EOF
+          fi
