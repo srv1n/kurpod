@@ -976,7 +976,7 @@ const FileViewer = ({
                                     className="object-contain"
                                     style={{
                                         width: isFullscreen ? '100vw' : '100%',
-                                        height: isFullscreen ? '100vh' : 'calc(100vh - 120px)',
+                                        height: isFullscreen ? '100vh' : isMobile ? 'calc(100vh - 120px)' : 'calc(100vh - 80px)',
                                         maxWidth: '100%',
                                         maxHeight: '100%'
                                     }}
@@ -998,10 +998,10 @@ const FileViewer = ({
                             <div className="flex items-center justify-center min-h-full p-4">
                                 <Card className={`
                                     p-6 bg-white/10 backdrop-blur border-white/20
-                                    ${isMobile ? 'w-full max-w-sm mx-4' : 'max-w-lg w-full'}
+                                    ${isMobile ? 'w-full max-w-sm mx-4' : 'max-w-2xl w-full'}
                                 `}>
                                     <div className="text-center mb-6">
-                                        <h3 className="text-lg font-medium truncate text-white mb-2">
+                                        <h3 className={`font-medium truncate text-white mb-2 ${isMobile ? 'text-lg' : 'text-xl'}`}>
                                             {file.path.split('/').pop()}
                                         </h3>
                                         <p className="text-sm text-gray-300">
@@ -1009,13 +1009,13 @@ const FileViewer = ({
                                         </p>
                                     </div>
                                     
-                                    {/* Custom audio controls for better mobile experience */}
+                                    {/* Audio controls */}
                                     <div className="space-y-4">
-                                        {/* Native audio element (hidden on mobile, visible on desktop) */}
+                                        {/* Native audio element (always visible on desktop, hidden on mobile) */}
                                         <audio
                                             ref={mediaRef}
                                             src={fileUrl}
-                                            className={isMobile ? 'hidden' : 'w-full'}
+                                            className={isMobile ? 'hidden' : 'w-full h-12'}
                                             controls={!isMobile}
                                             onPlay={() => setIsPlaying(true)}
                                             onPause={() => setIsPlaying(false)}

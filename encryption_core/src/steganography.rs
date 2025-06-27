@@ -12,4 +12,7 @@ pub trait StegoCarrier {
     fn extract(&self, carrier_bytes: &[u8]) -> Option<Vec<u8>>;
 }
 
+pub mod jpeg_comment;
+pub mod mp4_free_box;
+pub mod pdf_eof;
 pub mod png_chunk;

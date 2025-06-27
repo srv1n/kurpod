@@ -7,4 +7,7 @@ pub use blob::{
     MetadataMap, VolumeType, XNONCE_LEN,
 };
 
-pub use steganography::{png_chunk::PngChunkCarrier, StegoCarrier};
+pub use steganography::{
+    jpeg_comment::JpegCommentCarrier, mp4_free_box::Mp4FreeBoxCarrier, pdf_eof::PdfEofCarrier,
+    png_chunk::PngChunkCarrier, StegoCarrier,
+};

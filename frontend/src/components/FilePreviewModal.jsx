@@ -54,7 +54,7 @@ export function FilePreviewModal({ file, isOpen, onClose }) {
                 URL.revokeObjectURL(fileUrl);
             }
         };
-    }, [file, isOpen, apiCall, showToast, onClose]);
+    }, [file, isOpen, apiCall, onClose]);
 
     const handleDownload = async () => {
         try {
@@ -104,22 +104,24 @@ export function FilePreviewModal({ file, isOpen, onClose }) {
         switch (fileType.type) {
             case 'video':
                 return (
-                    <VideoPlayer
-                        src={fileUrl}
-                        type={fileType.mime}
-                        className="w-full max-h-[70vh]"
-                    />
+                    <div className="flex items-center justify-center p-4">
+                        <VideoPlayer
+                            src={fileUrl}
+                            type={fileType.mime}
+                            className="w-full max-h-[70vh] object-contain"
+                        />
+                    </div>
                 );
                 
             case 'audio':
                 return (
-                    <div className="p-8">
-                        <Card className="p-8 text-center">
+                    <div className="p-8 flex items-center justify-center">
+                        <Card className="p-8 text-center max-w-2xl w-full">
                             <div className="text-6xl mb-4">🎵</div>
-                            <h3 className="text-lg font-medium mb-4">{file.path}</h3>
+                            <h3 className="text-xl font-medium mb-6 truncate">{file.path.split('/').pop()}</h3>
                             <audio
                                 controls
-                                className="w-full"
+                                className="w-full h-12"
                                 src={fileUrl}
                             />
                         </Card>

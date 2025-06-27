@@ -17,9 +17,28 @@ No accounts. No tracking. No cloud dependencies.
 
 **Important**: This is filename disguise, not true file format mimicry. Technical inspection (`file` command) will show it's encrypted data. But for everyday privacy i.e shared computers, cloud storage, basic inspection the innocent filename provides excellent camouflage. 
 
-**🆕 NEW: True PNG Steganography**: KURPOD now supports hiding encrypted storage inside real PNG images! Files appear as normal photos that open in any image viewer, but secretly contain encrypted dual volumes. Perfect for scenarios requiring deeper plausible deniability. See [PNG Steganography Documentation](docs/STEGANOGRAPHY.md) for details. 
-
 The real magic is the **dual-volume encryption** that lets you hide a second encrypted space inside the same file.
+
+**🆕 NEW: Steganography Support (PNG · PDF · JPEG)**
+**🆕 NEW: Steganography Support (PNG · PDF · JPEG · MP4)**
+
+**🆕 NOW WITH MP4 SUPPORT!** *(experimental)*
+
+KURPOD can now **hide your encrypted blob _inside PNG, PDF, JPEG and MP4 video files_**. Open the carrier in any viewer/player and it behaves like a normal media file — but unlock it with KURPOD and your encrypted volumes appear.
+
+• **PNG / PDF** – guideline: keep payloads below ~100 MB (purely for stealth – technically unlimited).
+• **JPEG** – ~6.5 MB per file (format restriction).
+• **MP4 video** – up to ~4 GB (limited only by the 32-bit MP4 box size field).  Very large payloads work, but the resulting file size may draw attention – use with discretion.
+
+> Steganography is brand-new code – great for demos & light use, but please **treat it as beta** until it has more mileage.
+
+### Using it from the UI (30-second guide)
+1. **Create blob** → click **New Blob**.  
+2. Tick **"Use steganography (hide blob in image / PDF / JPEG / MP4)"**.  
+3. Pick a **carrier file** (PNG, PDF, JPEG or MP4).  
+4. Choose your two passwords (decoy + hidden) and **Create**.
+
+That's it – the resulting carrier file still opens/plays like normal, yet KURPOD can unlock it.
 
 ## The Hidden Compartment Trick
 

@@ -11,7 +11,7 @@ COPY frontend/ ./
 RUN bun install --frozen-lockfile || bun install \
  && bun run build \
  && rm -rf node_modules \
- && bun pm cache rm || true                     # Bun <1.2 has no pm‑cache command
+ && bun pm cache rm || true                     # Bun <1.2 has no pm‑cache command
 
 ################ 2️⃣  Rust builder (static musl) ########
 # Use native platform for compilation - no cross-compilation
@@ -59,4 +59,7 @@ COPY --from=certs   /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=builder /kurpod_server /kurpod_server
 EXPOSE 3000
 ENTRYPOINT ["/kurpod_server"]
-CMD ["--port", "3000", "--blob", "/app/data/storage.blob"]
+# Run with no default arguments; all flags are optional and can
+# be provided at `docker run` time. The server defaults to port 3000
+# and directory-based storage in /blobs (or the working directory).
+CMD []

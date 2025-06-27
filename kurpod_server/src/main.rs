@@ -25,7 +25,8 @@ use base64::{engine::general_purpose, Engine as _};
 use clap::Parser;
 use encryption_core::{
     add_file, add_file_stego, compact_blob, get_file, get_file_stego, init_blob, init_stego_blob,
-    remove_file, remove_folder, rename_file, unlock_blob, unlock_stego_blob, PngChunkCarrier,
+    remove_file, remove_folder, rename_file, unlock_blob, unlock_stego_blob, JpegCommentCarrier,
+    Mp4FreeBoxCarrier, PdfEofCarrier, PngChunkCarrier, StegoCarrier,
 };
 use local_ip_address::local_ip;
 use log;
@@ -51,7 +52,16 @@ struct Args {
     port: u16,
 
     /// Path to a single blob file – enables single-blob mode
-    #[arg(short = 's', long = "single", value_name = "FILE", group = "storage")]
+    ///
+    /// NOTE: `--blob` is kept as an alias for backwards-compatibility with
+    /// older Docker images and documentation. Both flags behave identically.
+    #[arg(
+        short = 's',
+        long = "single",
+        alias = "blob",
+        value_name = "FILE",
+        group = "storage"
+    )]
     single: Option<PathBuf>,
 
     /// Path to a directory that will hold (or already holds) blob files – enables directory mode
@@ -479,6 +489,48 @@ fn extract_user_agent(headers: &axum::http::HeaderMap) -> Option<String> {
         .map(|s| s.to_string())
 }
 
+/// Detect carrier type from file data
+#[derive(Debug)]
+enum CarrierType {
+    Png,
+    Pdf,
+    Jpeg,
+    Mp4,
+}
+
+fn detect_carrier_type(data: &[u8]) -> CarrierType {
+    // Check for PNG signature
+    if data.len() >= 8 && &data[0..8] == &[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A] {
+        return CarrierType::Png;
+    }
+
+    // Check for PDF signature
+    if data.len() >= 5 && &data[0..5] == b"%PDF-" {
+        return CarrierType::Pdf;
+    }
+
+    // Check for JPEG signature
+    if data.len() >= 2 && data[0] == 0xFF && data[1] == 0xD8 {
+        return CarrierType::Jpeg;
+    }
+
+    // Check for MP4 signature - look for "ftyp" within first 1KB
+    if data.len() >= 12 {
+        const SEARCH_LIMIT: usize = 1024;
+        let haystack = if data.len() < SEARCH_LIMIT {
+            data
+        } else {
+            &data[..SEARCH_LIMIT]
+        };
+        if haystack.windows(4).any(|w| w == b"ftyp") {
+            return CarrierType::Mp4;
+        }
+    }
+
+    // Default to PNG for backwards compatibility
+    CarrierType::Png
+}
+
 /// Helper function to add files with session-aware steganography support
 fn session_add_file(
     session: &session::Session,
@@ -490,18 +542,68 @@ fn session_add_file(
 ) -> anyhow::Result<()> {
     if session.is_steganographic {
         if let Some(ref carrier_path) = session.original_carrier_path {
-            let carrier = PngChunkCarrier::new();
-            add_file_stego(
-                &session.blob_path,
-                carrier_path,
-                &carrier,
-                session.volume_type,
-                derived_key,
-                metadata,
-                file_path,
-                content,
-                mime_type,
-            )
+            // Detect carrier type from carrier file
+            let carrier_data = std::fs::read(carrier_path)?;
+            let carrier_type = detect_carrier_type(&carrier_data);
+
+            match carrier_type {
+                CarrierType::Png => {
+                    let carrier = PngChunkCarrier::new();
+                    add_file_stego(
+                        &session.blob_path,
+                        carrier_path,
+                        &carrier,
+                        session.volume_type,
+                        derived_key,
+                        metadata,
+                        file_path,
+                        content,
+                        mime_type,
+                    )
+                }
+                CarrierType::Pdf => {
+                    let carrier = PdfEofCarrier::new();
+                    add_file_stego(
+                        &session.blob_path,
+                        carrier_path,
+                        &carrier,
+                        session.volume_type,
+                        derived_key,
+                        metadata,
+                        file_path,
+                        content,
+                        mime_type,
+                    )
+                }
+                CarrierType::Jpeg => {
+                    let carrier = JpegCommentCarrier::new();
+                    add_file_stego(
+                        &session.blob_path,
+                        carrier_path,
+                        &carrier,
+                        session.volume_type,
+                        derived_key,
+                        metadata,
+                        file_path,
+                        content,
+                        mime_type,
+                    )
+                }
+                CarrierType::Mp4 => {
+                    let carrier = Mp4FreeBoxCarrier::new();
+                    add_file_stego(
+                        &session.blob_path,
+                        carrier_path,
+                        &carrier,
+                        session.volume_type,
+                        derived_key,
+                        metadata,
+                        file_path,
+                        content,
+                        mime_type,
+                    )
+                }
+            }
         } else {
             // Fallback to regular add_file if no carrier path
             add_file(
@@ -535,9 +637,29 @@ fn session_get_file(
     metadata: &encryption_core::FileMetadata,
 ) -> anyhow::Result<Vec<u8>> {
     if session.is_steganographic {
-        if let Some(ref _carrier_path) = session.original_carrier_path {
-            let carrier = PngChunkCarrier::new();
-            get_file_stego(&session.blob_path, &carrier, derived_key, metadata)
+        if let Some(ref carrier_path) = session.original_carrier_path {
+            // Detect carrier type from carrier file
+            let carrier_data = std::fs::read(carrier_path)?;
+            let carrier_type = detect_carrier_type(&carrier_data);
+
+            match carrier_type {
+                CarrierType::Png => {
+                    let carrier = PngChunkCarrier::new();
+                    get_file_stego(&session.blob_path, &carrier, derived_key, metadata)
+                }
+                CarrierType::Pdf => {
+                    let carrier = PdfEofCarrier::new();
+                    get_file_stego(&session.blob_path, &carrier, derived_key, metadata)
+                }
+                CarrierType::Jpeg => {
+                    let carrier = JpegCommentCarrier::new();
+                    get_file_stego(&session.blob_path, &carrier, derived_key, metadata)
+                }
+                CarrierType::Mp4 => {
+                    let carrier = Mp4FreeBoxCarrier::new();
+                    get_file_stego(&session.blob_path, &carrier, derived_key, metadata)
+                }
+            }
         } else {
             // Fallback to regular get_file
             get_file(&session.blob_path, derived_key, metadata)
@@ -655,22 +777,68 @@ async fn init_handler(
                 // Decode the base64 carrier data
                 match general_purpose::STANDARD.decode(&carrier_base64) {
                     Ok(carrier_bytes) => {
+                        // Detect carrier type and create appropriate file extension
+                        let carrier_type = detect_carrier_type(&carrier_bytes);
+                        let extension = match carrier_type {
+                            CarrierType::Pdf => "pdf",
+                            CarrierType::Png => "png",
+                            CarrierType::Jpeg => "jpg",
+                            CarrierType::Mp4 => "mp4",
+                        };
+
                         // Create a temporary file for the carrier
                         let temp_dir = std::env::temp_dir();
-                        let carrier_path =
-                            temp_dir.join(format!("kurpod_carrier_{}.png", rand::random::<u64>()));
+                        let carrier_path = temp_dir.join(format!(
+                            "kurpod_carrier_{}.{}",
+                            rand::random::<u64>(),
+                            extension
+                        ));
 
-                        match std::fs::write(&carrier_path, carrier_bytes) {
+                        match std::fs::write(&carrier_path, &carrier_bytes) {
                             Ok(()) => {
-                                // Initialize steganographic blob
-                                let carrier = PngChunkCarrier::new();
-                                let result = init_stego_blob(
-                                    &carrier_path,
-                                    &blob_path,
-                                    &carrier,
-                                    &password_s,
-                                    &password_h_final,
-                                );
+                                // Initialize steganographic blob with detected carrier
+                                let result = match carrier_type {
+                                    CarrierType::Png => {
+                                        let carrier = PngChunkCarrier::new();
+                                        init_stego_blob(
+                                            &carrier_path,
+                                            &blob_path,
+                                            &carrier,
+                                            &password_s,
+                                            &password_h_final,
+                                        )
+                                    }
+                                    CarrierType::Pdf => {
+                                        let carrier = PdfEofCarrier::new();
+                                        init_stego_blob(
+                                            &carrier_path,
+                                            &blob_path,
+                                            &carrier,
+                                            &password_s,
+                                            &password_h_final,
+                                        )
+                                    }
+                                    CarrierType::Jpeg => {
+                                        let carrier = JpegCommentCarrier::new();
+                                        init_stego_blob(
+                                            &carrier_path,
+                                            &blob_path,
+                                            &carrier,
+                                            &password_s,
+                                            &password_h_final,
+                                        )
+                                    }
+                                    CarrierType::Mp4 => {
+                                        let carrier = Mp4FreeBoxCarrier::new();
+                                        init_stego_blob(
+                                            &carrier_path,
+                                            &blob_path,
+                                            &carrier,
+                                            &password_s,
+                                            &password_h_final,
+                                        )
+                                    }
+                                };
 
                                 // Clean up temporary carrier file
                                 std::fs::remove_file(&carrier_path).ok();
@@ -700,9 +868,40 @@ async fn init_handler(
             let unlock_result = match unlock_blob(&blob_path, &password_s) {
                 Ok(result) => Ok(result),
                 Err(_) => {
-                    // If normal blob unlock fails, try steganography auto-detection
-                    let carriers = vec![PngChunkCarrier::new()];
-                    unlock_stego_blob(&blob_path, &carriers, &password_s)
+                    // If normal blob unlock fails, try steganography auto-detection with all carriers
+                    let png_carrier = PngChunkCarrier::new();
+                    let pdf_carrier = PdfEofCarrier::new();
+                    let jpeg_carrier = JpegCommentCarrier::new();
+                    let mp4_carrier = Mp4FreeBoxCarrier::new();
+
+                    // Try PNG first
+                    match unlock_stego_blob(&blob_path, &[png_carrier], &password_s) {
+                        Ok(result) => Ok(result),
+                        Err(_) => {
+                            // Try PDF if PNG fails
+                            match unlock_stego_blob(&blob_path, &[pdf_carrier], &password_s) {
+                                Ok(result) => Ok(result),
+                                Err(_) => {
+                                    // Try JPEG if PDF fails
+                                    match unlock_stego_blob(
+                                        &blob_path,
+                                        &[jpeg_carrier],
+                                        &password_s,
+                                    ) {
+                                        Ok(result) => Ok(result),
+                                        Err(_) => {
+                                            // Try MP4 if JPEG fails
+                                            unlock_stego_blob(
+                                                &blob_path,
+                                                &[mp4_carrier],
+                                                &password_s,
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             };
 
@@ -912,9 +1111,33 @@ async fn unlock_handler(
     let unlock_result = match unlock_blob(&blob_path, &payload.password) {
         Ok(result) => Ok(result),
         Err(_) => {
-            // If normal blob unlock fails, try steganography auto-detection
-            let carriers = vec![PngChunkCarrier::new()];
-            unlock_stego_blob(&blob_path, &carriers, &payload.password)
+            // If normal blob unlock fails, try steganography auto-detection with all carriers
+            let png_carrier = PngChunkCarrier::new();
+            let pdf_carrier = PdfEofCarrier::new();
+            let jpeg_carrier = JpegCommentCarrier::new();
+            let mp4_carrier = Mp4FreeBoxCarrier::new();
+
+            // Try PNG first
+            match unlock_stego_blob(&blob_path, &[png_carrier], &payload.password) {
+                Ok(result) => Ok(result),
+                Err(_) => {
+                    // Try PDF if PNG fails
+                    match unlock_stego_blob(&blob_path, &[pdf_carrier], &payload.password) {
+                        Ok(result) => Ok(result),
+                        Err(_) => {
+                            // Try JPEG if PDF fails
+                            match unlock_stego_blob(&blob_path, &[jpeg_carrier], &payload.password)
+                            {
+                                Ok(result) => Ok(result),
+                                Err(_) => {
+                                    // Try MP4 if JPEG fails
+                                    unlock_stego_blob(&blob_path, &[mp4_carrier], &payload.password)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     };
 

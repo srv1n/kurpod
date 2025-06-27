@@ -52,7 +52,7 @@ export function CreateBlobModal({ isOpen, onClose, onSuccess }) {
         }
 
         if (useSteganography && !carrierFile) {
-            toast.error('Please select a PNG image file for steganography');
+            toast.error('Please select an image, PDF, or MP4 file for steganography');
             return;
         }
 
@@ -119,8 +119,13 @@ export function CreateBlobModal({ isOpen, onClose, onSuccess }) {
     const handleCarrierFileChange = (event) => {
         const file = event.target.files[0];
         if (file) {
-            if (!file.type.startsWith('image/')) {
-                toast.error('Please select a valid image file');
+            // Accept images, PDFs, and MP4 videos for steganography
+            const isImage = file.type.startsWith('image/');
+            const isPdf = file.type === 'application/pdf';
+            const isMp4 = file.type === 'video/mp4';
+            
+            if (!isImage && !isPdf && !isMp4) {
+                toast.error('Please select a valid image (PNG/JPEG), PDF, or MP4 video file');
                 return;
             }
             if (file.size > 10 * 1024 * 1024) { // 10MB limit
@@ -246,29 +251,29 @@ export function CreateBlobModal({ isOpen, onClose, onSuccess }) {
                                             }}
                                             disabled={loading}
                                         />
-                                        <Label htmlFor="useSteganography" className="text-sm">
-                                            Use steganography (hide blob in image)
-                                        </Label>
+                                                                <Label htmlFor="useSteganography" className="text-sm">
+                            Use steganography (hide blob in image/PDF/JPEG/MP4)
+                        </Label>
                                         <div className="group relative">
                                             <Info className="h-4 w-4 text-muted-foreground cursor-help" />
-                                            <div className="absolute left-full ml-2 bottom-0 hidden group-hover:block z-50 w-64 p-2 bg-popover border rounded-md shadow-md text-xs">
-                                                Creates a PNG image that looks normal but contains your encrypted data hidden inside. More secure against detection.
-                                            </div>
+                                                                        <div className="absolute left-full ml-2 bottom-0 hidden group-hover:block z-50 w-64 p-2 bg-popover border rounded-md shadow-md text-xs">
+                                Creates a file (image, PDF, or MP4 video) that looks normal but contains your encrypted data hidden inside. More secure against detection.
+                            </div>
                                         </div>
                                     </div>
 
                                     {useSteganography && (
                                         <div className="space-y-2">
-                                            <Label htmlFor="carrierFile">Carrier Image (PNG)</Label>
+                                            <Label htmlFor="carrierFile">Carrier File (Image/PDF/MP4)</Label>
                                             <div className="space-y-2">
-                                                <input
-                                                    ref={fileInputRef}
-                                                    type="file"
-                                                    accept="image/*"
-                                                    onChange={handleCarrierFileChange}
-                                                    className="hidden"
-                                                    disabled={loading}
-                                                />
+                                                                                <input
+                                    ref={fileInputRef}
+                                    type="file"
+                                    accept="image/*,.pdf,application/pdf,video/mp4"
+                                    onChange={handleCarrierFileChange}
+                                    className="hidden"
+                                    disabled={loading}
+                                />
                                                 <Button
                                                     type="button"
                                                     variant="outline"
@@ -276,12 +281,12 @@ export function CreateBlobModal({ isOpen, onClose, onSuccess }) {
                                                     disabled={loading}
                                                     className="w-full"
                                                 >
-                                                    {carrierFile ? `Selected: ${carrierFile.name}` : 'Choose Image File'}
+                                                    {carrierFile ? `Selected: ${carrierFile.name}` : 'Choose Carrier File'}
                                                 </Button>
                                             </div>
-                                            <p className="text-xs text-muted-foreground">
-                                                Select a PNG image to use as a carrier. The image will remain viewable while hiding your encrypted data.
-                                            </p>
+                                                                        <p className="text-xs text-muted-foreground">
+                                Select an image (PNG/JPEG), PDF, or MP4 video to use as a carrier. The file will remain viewable/playable while hiding your encrypted data.
+                            </p>
                                         </div>
                                     )}
                                 </div>
