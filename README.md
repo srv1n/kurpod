@@ -67,10 +67,24 @@ https://github.com/user-attachments/assets/467464f6-91fe-48e1-b7fb-bd431302d7a3
 brew tap srv1n/kurpod https://github.com/srv1n/kurpod.git
 brew install kurpod
 
-# Start server
+# Start server (defaults to port 3000 and ./blobs directory)
 kurpod_server
 
 # Access at http://localhost:3000
+# → Need a different port or storage location? See the
+#   "🔧 Configuration & Usage" section below for all flags.
+```
+
+**Troubleshooting Homebrew Cache Issues:**
+```bash
+# If you get "already installed" with old version or SHA256 mismatch:
+brew update                    # Refresh formula from tap
+brew reinstall kurpod         # Force reinstall latest version
+
+# If that doesn't work, clear cache:
+brew cleanup -s               # Clear all caches
+brew uninstall kurpod        # Remove old version
+brew install kurpod          # Fresh install
 ```
 
 **Uninstall:**

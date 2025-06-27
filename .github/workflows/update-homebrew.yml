@@ -38,26 +38,30 @@ jobs:
         continue-on-error: true
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-          mkdir -p dist
           
-          echo "🔍 Attempting to download macOS binaries for v$VERSION..."
+          echo "🔍 Fetching SHA256 checksums from GitHub release assets for v$VERSION..."
           
-          # Try to download the release artifacts
-          base="https://github.com/${{ github.repository }}/releases/download/v$VERSION"
+          # Use GitHub API to get release info and extract SHA256 from asset details
+          RELEASE_API="https://api.github.com/repos/${{ github.repository }}/releases/tags/v$VERSION"
           
-          if curl -fLso dist/intel.tar.gz "$base/kurpod-v$VERSION-darwin-intel.tar.gz"; then
-            echo "✅ Downloaded Intel macOS binary"
+          if curl -fsSL "$RELEASE_API" | jq -e '.assets' > /dev/null 2>&1; then
+            echo "✅ Found GitHub release v$VERSION"
+            
+            # Get the SHA256 from the asset download URL headers (GitHub provides it)
+            intel_url="https://github.com/${{ github.repository }}/releases/download/v$VERSION/kurpod-v$VERSION-darwin-intel.tar.gz"
+            arm_url="https://github.com/${{ github.repository }}/releases/download/v$VERSION/kurpod-v$VERSION-darwin-apple-silicon.tar.gz"
+            
+            # Download and calculate checksums (most reliable method)
+            mkdir -p dist
+            if curl -fLso dist/intel.tar.gz "$intel_url" && curl -fLso dist/arm.tar.gz "$arm_url"; then
+              echo "✅ Downloaded both macOS binaries"
+              echo "download_success=true" >> $GITHUB_OUTPUT
+            else
+              echo "❌ Failed to download binaries - this is expected for manual testing"
+              echo "download_success=false" >> $GITHUB_OUTPUT
+            fi
           else
-            echo "❌ Intel macOS binary not found - this is expected for manual testing"
-            echo "download_success=false" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-          
-          if curl -fLso dist/arm.tar.gz "$base/kurpod-v$VERSION-darwin-apple-silicon.tar.gz"; then
-            echo "✅ Downloaded Apple Silicon macOS binary"
-            echo "download_success=true" >> $GITHUB_OUTPUT
-          else
-            echo "❌ Apple Silicon macOS binary not found - this is expected for manual testing"
+            echo "❌ GitHub release v$VERSION not found - this is expected for manual testing"
             echo "download_success=false" >> $GITHUB_OUTPUT
           fi
 
