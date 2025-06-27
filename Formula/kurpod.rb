@@ -6,10 +6,10 @@ class Kurpod < Formula
 
   if Hardware::CPU.intel?
     url "https://github.com/srv1n/kurpod/releases/download/v#{version}/kurpod-v#{version}-darwin-intel.tar.gz"
-    sha256 "a77d8e114cf09dfbf7d2a1a85adf1d459c1821d13f3ebdbc8a65d742a8093e86"
+    sha256 "897f439a3d9dc15e6356a121aa4141ea86ef555790d2ceae368ddf3158276773"
   else
     url "https://github.com/srv1n/kurpod/releases/download/v#{version}/kurpod-v#{version}-darwin-apple-silicon.tar.gz"
-    sha256 "7bc8fd203b3b9b4d2c3523f5ad54f35bfdb9cdd727aa3badb2e50413ee96be35"
+    sha256 "995baa37132f18c69aa4021db4e835d7e064c1b2f31afc0245271b29fefaae10"
   end
 
   def install
