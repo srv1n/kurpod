@@ -1,7 +1,7 @@
 class Kurpod < Formula
   desc "Secure encrypted file storage server with plausible deniability"
   homepage "https://github.com/srv1n/kurpod"
-  version "0.0.5"
+  version "0.1.3"
   license "AGPL-3.0"
 
   if Hardware::CPU.intel?
