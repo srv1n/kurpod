@@ -47,7 +47,11 @@ my_vacation.jpg  (2.3MB encrypted container)
 
 ---
 ## Short Video
-https://github.com/user-attachments/assets/467464f6-91fe-48e1-b7fb-bd431302d7a3
+
+
+https://github.com/user-attachments/assets/d47b10cf-c38e-47e3-a796-c5e9abd366a5
+
+
 
 ---
 ## Technical details
