@@ -88,10 +88,12 @@ https://github.com/user-attachments/assets/467464f6-91fe-48e1-b7fb-bd431302d7a3
 brew tap srv1n/kurpod https://github.com/srv1n/kurpod.git
 brew install kurpod
 
-# Start server
+# Start server (defaults to port 3000 and ./blobs directory)
 kurpod_server
 
 # Access at http://localhost:3000
+# → Need a different port or storage location? See the
+#   "🔧 Configuration & Usage" section below for all flags.
 ```
 
 **Uninstall:**
@@ -112,6 +114,11 @@ brew autoremove
 docker run -p 3000:3000 -v ./data:/app/data ghcr.io/srv1n/kurpod:latest
 
 # Open browser to http://localhost:3000
+#
+# Need a single-blob file, custom port, or other options?
+# Simply append any flags after the image name, e.g.:
+#   docker run … ghcr.io/srv1n/kurpod:latest --blob /app/data/storage.blob
+# For the full list of flags see "🔧 Configuration & Usage" below.
 ```
 
 **Cleanup:**
@@ -239,23 +246,30 @@ cargo build --release -p kurpod_server
 
 ## 🔧 Configuration & Usage
 
-### Command Line Options
+### Command-Line Options
 ```bash
 # Basic usage (uses ./blobs directory)
-./kurpod_server
+kurpod_server
 
-# Specify custom blob file
+# Specify custom blob file (single-blob mode)
+# Alias: --single
 ./kurpod_server --blob /secure/path/storage.blob
+
+# Specify directory containing multiple blob files (directory mode)
+./kurpod_server --dir /opt/kurpod/blobs
 
 # Custom port
 ./kurpod_server --port 8080
 
-# Custom data directory
-./kurpod_server --data-dir /opt/kurpod/data
-
 # Show all options
 ./kurpod_server --help
 ```
+
+# Environment variable alternatives (useful for Docker/Compose)
+# BLOB_FILE and BLOB_DIR map to the same modes as above – set only one.
+BLOB_FILE=/secure/path/storage.blob kurpod_server
+BLOB_DIR=/opt/kurpod/blobs        kurpod_server
+
 ---
 
 ## Performance & Sizing

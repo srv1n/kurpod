@@ -2,7 +2,15 @@
 set -e
 
 # Script to update Homebrew formula with correct SHA256 hashes
-VERSION=${1:-"0.0.5"}
+# Usage: ./scripts/update-homebrew-formula.sh <version>
+# The <version> argument is mandatory. Example: ./scripts/update-homebrew-formula.sh 0.1.3
+
+if [ -z "$1" ]; then
+  echo "Usage: $0 <version> (e.g. 0.1.3)" >&2
+  exit 1
+fi
+
+VERSION="$1"
 REPO="srv1n/kurpod"
 
 echo "🍺 Updating Homebrew formula for KURPOD v$VERSION"
