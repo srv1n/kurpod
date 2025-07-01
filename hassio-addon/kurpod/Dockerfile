@@ -1,4 +1,4 @@
-FROM ghcr.io/srv1n/kurpod:latest
+FROM ghcr.io/srv1n/kurpod-server:latest
 
 # Copy the run script for Home Assistant integration
 COPY run.sh /

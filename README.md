@@ -15,30 +15,9 @@ No accounts. No tracking. No cloud dependencies.
 - Name it `work_report.pdf` - appears to be a document  
 - Name it `music_playlist.m3u` - seems like a music file
 
-**Important**: This is filename disguise, not true file format mimicry. Technical inspection (`file` command) will show it's encrypted data. But for everyday privacy i.e shared computers, cloud storage, basic inspection the innocent filename provides excellent camouflage. 
+**Important**: This is filename disguise, not true file format mimicry. Technical inspection (`file` command) will show it's encrypted data. But for everyday privacy i.e shared computers, cloud storage, basic inspection the innocent filename provides excellent camouflage. True steganography is planned in the future. 
 
 The real magic is the **dual-volume encryption** that lets you hide a second encrypted space inside the same file.
-
-**🆕 NEW: Steganography Support (PNG · PDF · JPEG)**
-**🆕 NEW: Steganography Support (PNG · PDF · JPEG · MP4)**
-
-**🆕 NOW WITH MP4 SUPPORT!** *(experimental)*
-
-KURPOD can now **hide your encrypted blob _inside PNG, PDF, JPEG and MP4 video files_**. Open the carrier in any viewer/player and it behaves like a normal media file — but unlock it with KURPOD and your encrypted volumes appear.
-
-• **PNG / PDF** – guideline: keep payloads below ~100 MB (purely for stealth – technically unlimited).
-• **JPEG** – ~6.5 MB per file (format restriction).
-• **MP4 video** – up to ~4 GB (limited only by the 32-bit MP4 box size field).  Very large payloads work, but the resulting file size may draw attention – use with discretion.
-
-> Steganography is brand-new code – great for demos & light use, but please **treat it as beta** until it has more mileage.
-
-### Using it from the UI (30-second guide)
-1. **Create blob** → click **New Blob**.  
-2. Tick **"Use steganography (hide blob in image / PDF / JPEG / MP4)"**.  
-3. Pick a **carrier file** (PNG, PDF, JPEG or MP4).  
-4. Choose your two passwords (decoy + hidden) and **Create**.
-
-That's it – the resulting carrier file still opens/plays like normal, yet KURPOD can unlock it.
 
 ## The Hidden Compartment Trick
 
@@ -68,7 +47,11 @@ my_vacation.jpg  (2.3MB encrypted container)
 
 ---
 ## Short Video
-https://github.com/user-attachments/assets/467464f6-91fe-48e1-b7fb-bd431302d7a3
+
+
+https://github.com/user-attachments/assets/d47b10cf-c38e-47e3-a796-c5e9abd366a5
+
+
 
 ---
 ## Technical details
@@ -96,6 +79,18 @@ kurpod_server
 #   "🔧 Configuration & Usage" section below for all flags.
 ```
 
+**Troubleshooting Homebrew Cache Issues:**
+```bash
+# If you get "already installed" with old version or SHA256 mismatch:
+brew update                    # Refresh formula from tap
+brew reinstall kurpod         # Force reinstall latest version
+
+# If that doesn't work, clear cache:
+brew cleanup -s               # Clear all caches
+brew uninstall kurpod        # Remove old version
+brew install kurpod          # Fresh install
+```
+
 **Uninstall:**
 ```bash
 # Remove KURPOD
@@ -111,14 +106,9 @@ brew autoremove
 ### Option 2: Docker (Cross-platform)
 ```bash
 # Run latest version
-docker run -p 3000:3000 -v ./data:/app/data ghcr.io/srv1n/kurpod:latest
+docker run -p 3000:3000 -v ./data:/app/data ghcr.io/srv1n/kurpod-server:latest
 
 # Open browser to http://localhost:3000
-#
-# Need a single-blob file, custom port, or other options?
-# Simply append any flags after the image name, e.g.:
-#   docker run … ghcr.io/srv1n/kurpod:latest --blob /app/data/storage.blob
-# For the full list of flags see "🔧 Configuration & Usage" below.
 ```
 
 **Cleanup:**
@@ -128,7 +118,7 @@ docker stop $(docker ps -q --filter ancestor=ghcr.io/srv1n/kurpod)
 docker rm $(docker ps -aq --filter ancestor=ghcr.io/srv1n/kurpod)
 
 # Remove downloaded image
-docker rmi ghcr.io/srv1n/kurpod:latest
+docker rmi ghcr.io/srv1n/kurpod-server:latest
 
 # Remove all unused images, containers, and volumes (optional)
 docker system prune -a --volumes
@@ -246,30 +236,23 @@ cargo build --release -p kurpod_server
 
 ## 🔧 Configuration & Usage
 
-### Command-Line Options
+### Command Line Options
 ```bash
 # Basic usage (uses ./blobs directory)
-kurpod_server
+./kurpod_server
 
-# Specify custom blob file (single-blob mode)
-# Alias: --single
+# Specify custom blob file
 ./kurpod_server --blob /secure/path/storage.blob
-
-# Specify directory containing multiple blob files (directory mode)
-./kurpod_server --dir /opt/kurpod/blobs
 
 # Custom port
 ./kurpod_server --port 8080
 
+# Custom data directory
+./kurpod_server --data-dir /opt/kurpod/data
+
 # Show all options
 ./kurpod_server --help
 ```
-
-# Environment variable alternatives (useful for Docker/Compose)
-# BLOB_FILE and BLOB_DIR map to the same modes as above – set only one.
-BLOB_FILE=/secure/path/storage.blob kurpod_server
-BLOB_DIR=/opt/kurpod/blobs        kurpod_server
-
 ---
 
 ## Performance & Sizing

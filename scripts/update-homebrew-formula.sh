@@ -35,6 +35,19 @@ sed -i.bak \
     -e "s/version \".*\"/version \"$VERSION\"/g" \
     Formula/kurpod.rb
 
+# Verify the replacements worked
+echo "🔍 Verifying updates..."
+if grep -q "INTEL_SHA256_PLACEHOLDER\|ARM_SHA256_PLACEHOLDER" Formula/kurpod.rb; then
+    echo "❌ Warning: Some placeholders were not replaced!"
+    grep "PLACEHOLDER" Formula/kurpod.rb
+fi
+
+if grep -q "version \"$VERSION\"" Formula/kurpod.rb; then
+    echo "✅ Version updated to $VERSION"
+else
+    echo "❌ Warning: Version may not have been updated properly"
+fi
+
 # Clean up backup
 rm -f Formula/kurpod.rb.bak
 
