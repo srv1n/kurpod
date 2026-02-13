@@ -1,6 +1,6 @@
 [package]
 name = "encryption_core"
-version = "0.1.2"
+version = "0.1.4"
 edition = "2021"
 description = "Core encryption and blob storage logic"
 
@@ -25,4 +25,3 @@ tempfile = { workspace = true }
 
 # Ensure features needed by the crate are enabled if using workspace versions
 # e.g., serde = { workspace = true, features = ["derive"] }
-

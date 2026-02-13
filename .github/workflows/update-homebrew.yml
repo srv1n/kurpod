@@ -6,9 +6,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to update formula for (e.g., 0.1.3)'
+        description: 'Version to update formula for (e.g., 0.1.4)'
         required: true
-        default: '0.1.3'
+        default: '0.1.4'
 
 permissions:
   contents: write  # Allow pushing commits back to the repository

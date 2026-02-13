@@ -11,7 +11,7 @@ resolver = "2"
 # The workspace doesn't have its own dependencies
 [workspace.package]
 edition = "2021"
-version = "0.1.2"
+version = "0.1.4"
 authors = ["Sarav"]
 license = "AGPL-3.0-or-later"
 homepage = "https://github.com/srv1n/kurpod"

@@ -1,6 +1,6 @@
 [package]
 name = "kurpod_server"
-version = "0.1.2"
+version = "0.1.4"
 edition = "2021"
 description = "HTTP server implementation for the encrypted blob application"
 
