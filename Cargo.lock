@@ -440,7 +440,7 @@ dependencies = [
 
 [[package]]
 name = "encryption_core"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -755,7 +755,7 @@ dependencies = [
 
 [[package]]
 name = "kurpod_server"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "axum",
