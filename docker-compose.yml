@@ -1,7 +1,6 @@
 services:
   kurpod:
-    image: kurpod:latest
-    build: .
+    image: ghcr.io/srv1n/kurpod-server:latest
     container_name: kurpod
     ports:
       - "3000:3000"
@@ -9,6 +8,7 @@ services:
       - kurpod_data:/data
     environment:
       - RUST_LOG=info
+      - BLOB_DIR=/data
     restart: unless-stopped
     # healthcheck:
     #   # Would need to implement --health flag or use external monitoring

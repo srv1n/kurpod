@@ -90,7 +90,7 @@ const UploadManager = ({
         
         setUploading(true);
         const batchId = Math.random().toString(36).substr(2, 9);
-        const batchSize = 500; // Upload 500 files at a time
+        const batchSize = uploadType === 'folder' ? 100 : 500;
         
         try {
             for (let i = 0; i < files.length; i += batchSize) {
@@ -113,14 +113,16 @@ const UploadManager = ({
         } finally {
             setUploading(false);
         }
-    }, [files, currentFolder, onUploadComplete, onClose, clearFiles]);
+    }, [files, uploadType, currentFolder, onUploadComplete, onClose, clearFiles]);
 
     // Upload a single batch
     const uploadBatch = async (batch, batchId, isFinalBatch) => {
         const formData = new FormData();
         
+        const isFolderBatch = uploadType === 'folder' && batch.some(f => f.path.includes('/'));
+
         batch.forEach(fileItem => {
-            if (uploadType === 'folder' && batch.some(f => f.path.includes('/'))) {
+            if (isFolderBatch) {
                 // For batch uploads, use 'files' and 'file_paths'
                 formData.append('files', fileItem.file);
                 formData.append('file_paths', fileItem.path);
@@ -141,7 +143,7 @@ const UploadManager = ({
         
         try {
             let response;
-            if (uploadType === 'folder' && batch.some(f => f.path.includes('/'))) {
+            if (isFolderBatch) {
                 // Use batch upload for folders
                 console.log('=== FRONTEND BATCH UPLOAD DEBUG ===');
                 console.log('currentFolder prop:', currentFolder);

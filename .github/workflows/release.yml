@@ -104,7 +104,7 @@ jobs:
           docker run -p 3000:3000 ghcr.io/srv1n/kurpod-server:latest
           
           # Run with persistent storage
-          docker run -p 3000:3000 -v ./data:/app/data ghcr.io/srv1n/kurpod-server:latest
+          docker run -p 3000:3000 -e BLOB_DIR=/data -v ./data:/data ghcr.io/srv1n/kurpod-server:latest
           
           # Run specific version
           docker run -p 3000:3000 ghcr.io/srv1n/kurpod:v${{ steps.get_version.outputs.version }}

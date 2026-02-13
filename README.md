@@ -106,7 +106,10 @@ brew autoremove
 ### Option 2: Docker (Cross-platform)
 ```bash
 # Run latest version
-docker run -p 3000:3000 -v ./data:/app/data ghcr.io/srv1n/kurpod-server:latest
+docker run -p 3000:3000 \
+  -e BLOB_DIR=/data \
+  -v ./data:/data \
+  ghcr.io/srv1n/kurpod-server:latest
 
 # Open browser to http://localhost:3000
 ```
@@ -114,8 +117,8 @@ docker run -p 3000:3000 -v ./data:/app/data ghcr.io/srv1n/kurpod-server:latest
 **Cleanup:**
 ```bash
 # Stop and remove running container
-docker stop $(docker ps -q --filter ancestor=ghcr.io/srv1n/kurpod)
-docker rm $(docker ps -aq --filter ancestor=ghcr.io/srv1n/kurpod)
+docker stop $(docker ps -q --filter ancestor=ghcr.io/srv1n/kurpod-server:latest)
+docker rm $(docker ps -aq --filter ancestor=ghcr.io/srv1n/kurpod-server:latest)
 
 # Remove downloaded image
 docker rmi ghcr.io/srv1n/kurpod-server:latest

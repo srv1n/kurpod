@@ -1,30 +1,28 @@
 # Docker Deployment Guide
 
-This guide covers building and deploying Kurpod using Docker with support for both x86_64 and ARM64 (Raspberry Pi) platforms.
+This guide covers deploying Kurpod using Docker with support for both x86_64 and ARM64 (Raspberry Pi) platforms.
 
 ## Quick Start
 
-### Single Architecture Build (Current Platform)
+### Run Published Image (Recommended)
 ```bash
-# Build for your current platform
-./build-docker.sh
-
-# Run with docker-compose
+# Pull latest image and run with docker-compose
+docker compose pull
 docker compose up -d
 ```
 
-### Multi-Architecture Build (x86_64 + ARM64)
+### Build Locally (Current Platform)
 ```bash
-# Build for current platform only (local testing)
-./build-multiarch.sh --load
+# Build from this repository checkout
+docker build -t kurpod:local .
 
-# Build for both x86_64 and ARM64 (requires registry push)
-./build-multiarch.sh
+# Run local image
+docker run -p 3000:3000 -e BLOB_DIR=/data -v "$(pwd)/data:/data" kurpod:local
 ```
 
 ## Image Details
 
-- **Base Image**: `gcr.io/distroless/cc-debian12` (minimal, secure)
+- **Base Image**: `scratch` (minimal, secure)
 - **Final Size**: ~39MB
 - **Architecture Support**: x86_64, ARM64 (aarch64)
 - **Frontend**: Embedded via `rust-embed` (no separate serving needed)
@@ -43,13 +41,14 @@ The `docker-compose.yml` includes:
 ```yaml
 services:
   kurpod:
-    image: kurpod:latest
+    image: ghcr.io/srv1n/kurpod-server:latest
     ports:
       - "3000:3000"
     volumes:
       - kurpod_data:/data
     environment:
       - RUST_LOG=info
+      - BLOB_DIR=/data
 ```
 
 ## Platform-Specific Notes
@@ -62,17 +61,10 @@ services:
 ### x86_64 (Intel/AMD)
 Standard Docker build works on all x86_64 systems.
 
-## Build Scripts
+## Build Notes
 
-### `build-docker.sh`
-- Standard single-platform build
-- Fast local development
-- Works with docker-compose
-
-### `build-multiarch.sh`
-- Multi-platform support
-- Uses Docker Buildx
-- Can push to registries for distribution
+- Build locally with `docker build -t kurpod:local .`
+- Multi-architecture publishing is handled by GitHub Actions release workflows
 
 ## Security Features
 
@@ -97,7 +89,7 @@ Standard Docker build works on all x86_64 systems.
 ## Environment Variables
 
 - `RUST_LOG`: Log level (debug, info, warn, error)
-- `ENC_FRONTEND_PATH`: Not needed (embedded)
+- `BLOB_DIR`: Directory used for blob storage (set to `/data` in compose)
 
 ## Troubleshooting
 
@@ -126,7 +118,7 @@ cd frontend && npm run dev
 
 1. **Build multi-arch image**:
    ```bash
-   ./build-multiarch.sh
+   docker buildx build --platform linux/amd64,linux/arm64 -t your-registry/kurpod:v1.0.0 --push .
    ```
 
 2. **Deploy with docker-compose**:
@@ -151,7 +143,7 @@ To distribute multi-arch images:
 
 1. **Build and push**:
    ```bash
-   TAG=v1.0.0 ./build-multiarch.sh
+   docker buildx build --platform linux/amd64,linux/arm64 -t your-registry/kurpod:v1.0.0 --push .
    ```
 
 2. **Pull on target machine**:
@@ -161,5 +153,5 @@ To distribute multi-arch images:
 
 3. **Run anywhere**:
    ```bash
-   docker run -p 3000:3000 -v data:/data your-registry/kurpod:v1.0.0
-   ``` 
+   docker run -p 3000:3000 -e BLOB_DIR=/data -v data:/data your-registry/kurpod:v1.0.0
+   ```

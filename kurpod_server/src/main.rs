@@ -1567,49 +1567,69 @@ async fn upload_handler(
         let mut file_paths: Vec<String> = Vec::new();
 
         // Process multipart without holding any locks
-        while let Ok(Some(field)) = multipart.next_field().await {
-            if let Some(name) = field.name() {
-                if name == "file" || name == "files" {
-                    match field.file_name() {
-                        Some(fname) => {
-                            let fname_owned = fname.to_string();
-                            println!("Processing file: {}", fname_owned);
+        loop {
+            match multipart.next_field().await {
+                Ok(Some(field)) => {
+                    if let Some(name) = field.name() {
+                        if name == "file" || name == "files" {
+                            match field.file_name() {
+                                Some(fname) => {
+                                    let fname_owned = fname.to_string();
+                                    println!("Processing file: {}", fname_owned);
 
-                            match field.bytes().await {
-                                Ok(bytes) => {
-                                    let size = bytes.len();
-                                    total_size += size;
-                                    println!("Received file: {} ({} bytes)", fname_owned, size);
+                                    match field.bytes().await {
+                                        Ok(bytes) => {
+                                            let size = bytes.len();
+                                            total_size += size;
+                                            println!(
+                                                "Received file: {} ({} bytes)",
+                                                fname_owned, size
+                                            );
 
-                                    uploaded_files.push((fname_owned, bytes.to_vec()));
-                                    file_count += 1;
+                                            uploaded_files.push((fname_owned, bytes.to_vec()));
+                                            file_count += 1;
+                                        }
+                                        Err(e) => {
+                                            println!("Error reading file data: {}", e);
+                                            let resp: ApiResponse<FileList> = ApiResponse {
+                                                success: false,
+                                                data: None,
+                                                message: Some(format!(
+                                                    "Error reading file data: {}",
+                                                    e
+                                                )),
+                                            };
+                                            return (StatusCode::INTERNAL_SERVER_ERROR, Json(resp))
+                                                .into_response();
+                                        }
+                                    }
+                                }
+                                None => {
+                                    println!("File field without filename");
+                                }
+                            }
+                        } else if name == "file_path" || name == "file_paths" {
+                            match field.text().await {
+                                Ok(path) => {
+                                    file_paths.push(path);
+                                    println!("Received file path: {}", file_paths.last().unwrap());
                                 }
                                 Err(e) => {
-                                    println!("Error reading file data: {}", e);
-                                    let resp: ApiResponse<FileList> = ApiResponse {
-                                        success: false,
-                                        data: None,
-                                        message: Some(format!("Error reading file data: {}", e)),
-                                    };
-                                    return (StatusCode::INTERNAL_SERVER_ERROR, Json(resp))
-                                        .into_response();
+                                    println!("Error reading file path: {}", e);
                                 }
                             }
                         }
-                        None => {
-                            println!("File field without filename");
-                        }
                     }
-                } else if name == "file_path" {
-                    match field.text().await {
-                        Ok(path) => {
-                            file_paths.push(path);
-                            println!("Received file path: {}", file_paths.last().unwrap());
-                        }
-                        Err(e) => {
-                            println!("Error reading file path: {}", e);
-                        }
-                    }
+                }
+                Ok(None) => break,
+                Err(e) => {
+                    println!("Error parsing multipart/form-data request: {}", e);
+                    let resp: ApiResponse<FileList> = ApiResponse {
+                        success: false,
+                        data: None,
+                        message: Some(format!("Invalid multipart payload: {}", e)),
+                    };
+                    return (StatusCode::BAD_REQUEST, Json(resp)).into_response();
                 }
             }
         }
@@ -1775,52 +1795,69 @@ async fn batch_upload_handler(
         let mut file_paths: Vec<String> = Vec::new();
 
         // Process multipart without holding any locks
-        while let Ok(Some(field)) = multipart.next_field().await {
-            if let Some(name) = field.name() {
-                if name == "files" {
-                    match field.file_name() {
-                        Some(fname) => {
-                            let fname_owned = fname.to_string();
-                            println!("Processing batch file: {}", fname_owned);
+        loop {
+            match multipart.next_field().await {
+                Ok(Some(field)) => {
+                    if let Some(name) = field.name() {
+                        if name == "files" || name == "file" {
+                            match field.file_name() {
+                                Some(fname) => {
+                                    let fname_owned = fname.to_string();
+                                    println!("Processing batch file: {}", fname_owned);
 
-                            match field.bytes().await {
-                                Ok(bytes) => {
-                                    let size = bytes.len();
-                                    total_size += size;
-                                    println!(
-                                        "Received batch file: {} ({} bytes)",
-                                        fname_owned, size
-                                    );
+                                    match field.bytes().await {
+                                        Ok(bytes) => {
+                                            let size = bytes.len();
+                                            total_size += size;
+                                            println!(
+                                                "Received batch file: {} ({} bytes)",
+                                                fname_owned, size
+                                            );
 
-                                    uploaded_files.push((fname_owned, bytes.to_vec()));
-                                    file_count += 1;
+                                            uploaded_files.push((fname_owned, bytes.to_vec()));
+                                            file_count += 1;
+                                        }
+                                        Err(e) => {
+                                            println!("Error reading batch file data: {}", e);
+                                            let resp: ApiResponse<FileList> = ApiResponse {
+                                                success: false,
+                                                data: None,
+                                                message: Some(format!(
+                                                    "Error reading file data: {}",
+                                                    e
+                                                )),
+                                            };
+                                            return (StatusCode::INTERNAL_SERVER_ERROR, Json(resp))
+                                                .into_response();
+                                        }
+                                    }
+                                }
+                                None => {
+                                    println!("File field without filename in batch");
+                                }
+                            }
+                        } else if name == "file_paths" || name == "file_path" {
+                            match field.text().await {
+                                Ok(path) => {
+                                    file_paths.push(path);
+                                    println!("Received file path: {}", file_paths.last().unwrap());
                                 }
                                 Err(e) => {
-                                    println!("Error reading batch file data: {}", e);
-                                    let resp: ApiResponse<FileList> = ApiResponse {
-                                        success: false,
-                                        data: None,
-                                        message: Some(format!("Error reading file data: {}", e)),
-                                    };
-                                    return (StatusCode::INTERNAL_SERVER_ERROR, Json(resp))
-                                        .into_response();
+                                    println!("Error reading file path: {}", e);
                                 }
                             }
                         }
-                        None => {
-                            println!("File field without filename in batch");
-                        }
                     }
-                } else if name == "file_paths" {
-                    match field.text().await {
-                        Ok(path) => {
-                            file_paths.push(path);
-                            println!("Received file path: {}", file_paths.last().unwrap());
-                        }
-                        Err(e) => {
-                            println!("Error reading file path: {}", e);
-                        }
-                    }
+                }
+                Ok(None) => break,
+                Err(e) => {
+                    println!("Error parsing batch multipart/form-data request: {}", e);
+                    let resp: ApiResponse<FileList> = ApiResponse {
+                        success: false,
+                        data: None,
+                        message: Some(format!("Invalid multipart payload: {}", e)),
+                    };
+                    return (StatusCode::BAD_REQUEST, Json(resp)).into_response();
                 }
             }
         }

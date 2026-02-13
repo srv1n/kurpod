@@ -95,13 +95,14 @@ export const AuthProvider = ({ children }) => {
   };
 
   const apiCall = async (url, options = {}) => {
+    const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
     const headers = {
       ...getAuthHeaders(),
       ...options.headers,
     };
 
     // Only add Content-Type for non-GET requests and when not explicitly set
-    if (options.method && options.method !== 'GET' && !options.headers?.['Content-Type'] && !options.body?.constructor?.name?.includes('FormData')) {
+    if (options.method && options.method !== 'GET' && !options.headers?.['Content-Type'] && !isFormData) {
       headers['Content-Type'] = 'application/json';
     }
 

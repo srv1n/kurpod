@@ -13,11 +13,15 @@ class ApiService {
 
   // Generic API call with auth handling
   async apiCall(url, options = {}) {
+    const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
     const headers = {
-      'Content-Type': 'application/json',
       ...this.getAuthHeaders(),
       ...options.headers,
     };
+
+    if (options.method && options.method !== 'GET' && !options.headers?.['Content-Type'] && !isFormData) {
+      headers['Content-Type'] = 'application/json';
+    }
 
     const response = await fetch(url, {
       ...options,
