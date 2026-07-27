@@ -12,7 +12,7 @@ import UploadManager from './components/UploadManager';
 import MobileSidebar from './components/MobileSidebar';
 import { MobileBreadcrumb } from './components/MobileBreadcrumb';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
-import { ArrowUpTrayIcon, FolderPlusIcon, Cog6ToothIcon, WrenchScrewdriverIcon } from '@heroicons/react/24/outline';
+import { ArrowDownTrayIcon, ArrowUpTrayIcon, FolderPlusIcon, Cog6ToothIcon, WrenchScrewdriverIcon } from '@heroicons/react/24/outline';
 import apiService from './services/api.js';
 
 function UnlockScreen() {
@@ -192,6 +192,7 @@ function Dashboard() {
     const [showUploadManager, setShowUploadManager] = useState(false);
     const [uploadType, setUploadType] = useState('single');
     const [refreshTrigger, setRefreshTrigger] = useState(0);
+    const [downloadingVault, setDownloadingVault] = useState(false);
     const { logout, volumeType, apiCall } = useAuth();
 
     // Handle file preview
@@ -220,6 +221,35 @@ function Dashboard() {
         setRefreshTrigger(prev => prev + 1);
         toast.success('Upload completed successfully!');
     }, []);
+
+    // Download the complete unlocked volume as a ZIP archive
+    const handleDownloadVault = useCallback(async () => {
+        if (downloadingVault) return;
+
+        setDownloadingVault(true);
+        try {
+            const response = await apiCall('/api/download-vault');
+            if (!response.ok) {
+                const data = await response.json().catch(() => null);
+                throw new Error(data?.message || 'Failed to download vault');
+            }
+
+            const archive = await response.blob();
+            const downloadUrl = URL.createObjectURL(archive);
+            const anchor = document.createElement('a');
+            anchor.href = downloadUrl;
+            anchor.download = 'kurpod-vault.zip';
+            document.body.appendChild(anchor);
+            anchor.click();
+            anchor.remove();
+            window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 0);
+            toast.success('Vault download started');
+        } catch (error) {
+            toast.error(error.message || 'Failed to download vault');
+        } finally {
+            setDownloadingVault(false);
+        }
+    }, [apiCall, downloadingVault]);
 
     // Handle file delete
     const handleFileDelete = useCallback(async (file) => {
@@ -306,6 +336,7 @@ function Dashboard() {
                         currentPath={currentPath}
                         onNavigate={handleNavigate}
                         onUploadStart={handleUploadStart}
+                        onDownloadVault={handleDownloadVault}
                         onCompactStorage={handleCompaction}
                     />
                     
@@ -358,6 +389,14 @@ function Dashboard() {
                                 >
                                     <FolderPlusIcon className="w-4 h-4 mr-2" />
                                     <span>Folder</span>
+                                </button>
+                                <button
+                                    onClick={handleDownloadVault}
+                                    disabled={downloadingVault}
+                                    className="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-accent hover:text-accent-foreground h-9 px-4 py-2"
+                                >
+                                    <ArrowDownTrayIcon className="w-4 h-4 mr-2" />
+                                    <span>{downloadingVault ? 'Preparing...' : 'Download Vault'}</span>
                                 </button>
                             </div>
                             

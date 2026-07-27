@@ -8,7 +8,8 @@ mod auth;
 mod session;
 mod state;
 
-use crate::{auth::AuthContext, state::AppState};
+use crate::{auth::AuthContext, session::Session, state::AppState};
+use anyhow::anyhow;
 use axum::extract::{ConnectInfo, Extension};
 use axum::{
     extract::{DefaultBodyLimit, Path, Query},
@@ -26,6 +27,7 @@ use encryption_core::{
     add_file, compact_blob, get_file, init_blob, remove_file, remove_folder, rename_file,
     unlock_blob,
 };
+use futures_util::StreamExt;
 use local_ip_address::local_ip;
 use log;
 use mime_guess::{from_path, mime};
@@ -33,9 +35,13 @@ use rand::{rngs::OsRng, RngCore};
 use rust_embed::RustEmbed;
 use serde::{Deserialize, Serialize};
 use std::fs;
+use std::io::Write;
 use std::{net::SocketAddr, path::PathBuf};
+use tempfile::{NamedTempFile, TempPath};
 use tokio::net::TcpListener;
+use tokio_util::io::ReaderStream;
 use tower::ServiceBuilder;
+use zip::{write::SimpleFileOptions, CompressionMethod, ZipWriter};
 
 /// Command-line arguments
 #[derive(Parser, Debug)]
@@ -370,6 +376,7 @@ async fn main() {
         .route("/api/session", get(session_status_handler))
         .route("/api/files", get(files_handler))
         .route("/api/files", post(upload_handler))
+        .route("/api/download-vault", get(download_vault_handler))
         .route("/api/batch-upload", post(batch_upload_handler))
         .route("/api/files/*filepath", get(file_get_handler))
         .route("/api/files/*filepath", delete(file_delete_handler))
@@ -884,6 +891,143 @@ async fn files_handler(
         };
         (StatusCode::NOT_FOUND, Json(resp)).into_response()
     }
+}
+
+/// Creates a ZIP archive containing every file in the unlocked volume and
+/// streams it to the client without keeping the complete archive in memory.
+async fn download_vault_handler(
+    auth: AuthContext,
+    Extension(app_context): Extension<AppContext>,
+) -> Response {
+    let Some(session) = app_context
+        .app_state
+        .session_manager
+        .get_session(&auth.session_id)
+    else {
+        let resp: ApiResponse<()> = ApiResponse {
+            success: false,
+            data: None,
+            message: Some("Session not found".into()),
+        };
+        return (StatusCode::NOT_FOUND, Json(resp)).into_response();
+    };
+
+    let archive_result =
+        tokio::task::spawn_blocking(move || create_vault_archive(&session, &auth.derived_key))
+            .await;
+    let temp_path = match archive_result {
+        Ok(Ok(temp_path)) => temp_path,
+        Ok(Err(error)) => {
+            log::error!("Failed to create vault archive: {}", error);
+            let resp: ApiResponse<()> = ApiResponse {
+                success: false,
+                data: None,
+                message: Some("Failed to create vault archive".into()),
+            };
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(resp)).into_response();
+        }
+        Err(error) => {
+            log::error!("Vault archive task failed: {}", error);
+            let resp: ApiResponse<()> = ApiResponse {
+                success: false,
+                data: None,
+                message: Some("Failed to create vault archive".into()),
+            };
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(resp)).into_response();
+        }
+    };
+
+    let archive_path = temp_path.to_path_buf();
+    let archive_size = match fs::metadata(&archive_path) {
+        Ok(metadata) => metadata.len(),
+        Err(error) => {
+            log::error!("Failed to inspect vault archive: {}", error);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to read vault archive",
+            )
+                .into_response();
+        }
+    };
+
+    let archive_file = match fs::File::open(&archive_path) {
+        Ok(file) => tokio::fs::File::from_std(file),
+        Err(error) => {
+            log::error!("Failed to open vault archive: {}", error);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to read vault archive",
+            )
+                .into_response();
+        }
+    };
+
+    // Keep TempPath in the stream state so the temporary archive is deleted
+    // both after a successful download and if the client disconnects early.
+    let stream = futures_util::stream::unfold(
+        (ReaderStream::new(archive_file), temp_path),
+        |(mut reader, temp_path)| async move {
+            match reader.next().await {
+                Some(chunk) => Some((chunk, (reader, temp_path))),
+                None => {
+                    drop(temp_path);
+                    None
+                }
+            }
+        },
+    );
+
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(CONTENT_TYPE, "application/zip")
+        .header("Content-Length", archive_size.to_string())
+        .header(
+            CONTENT_DISPOSITION,
+            "attachment; filename=\"kurpod-vault.zip\"",
+        )
+        .body(axum::body::Body::from_stream(stream))
+        .unwrap()
+        .into_response()
+}
+
+fn create_vault_archive(session: &Session, key: &[u8; 32]) -> anyhow::Result<TempPath> {
+    let temp_file = NamedTempFile::new()?;
+    let mut archive = ZipWriter::new(temp_file);
+    let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+
+    let mut entries: Vec<_> = session.metadata.iter().collect();
+    entries.sort_by(|(left, _), (right, _)| left.cmp(right));
+
+    for (file_path, metadata) in entries {
+        let archive_path = archive_entry_path(file_path)
+            .ok_or_else(|| anyhow!("Invalid file path in vault metadata: {}", file_path))?;
+        let content = get_file(&session.blob_path, key, metadata)?;
+        archive.start_file(archive_path, options)?;
+        archive.write_all(&content)?;
+    }
+
+    Ok(archive.finish()?.into_temp_path())
+}
+
+fn archive_entry_path(file_path: &str) -> Option<String> {
+    if file_path.is_empty()
+        || file_path.starts_with('/')
+        || file_path.ends_with('/')
+        || file_path.contains('\\')
+        || file_path.contains('\0')
+    {
+        return None;
+    }
+
+    let mut segments = Vec::new();
+    for segment in file_path.split('/') {
+        if segment.is_empty() || segment == "." || segment == ".." {
+            return None;
+        }
+        segments.push(segment);
+    }
+
+    (!segments.is_empty()).then(|| segments.join("/"))
 }
 
 async fn tree_handler(
@@ -2108,5 +2252,84 @@ async fn compact_legacy_handler(
             message: Some("Session not found".into()),
         };
         (StatusCode::NOT_FOUND, Json(resp)).into_response()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use encryption_core::{add_file, init_blob, unlock_blob};
+    use std::io::Read;
+    use tempfile::tempdir;
+    use zip::ZipArchive;
+
+    #[test]
+    fn vault_archive_preserves_nested_files_and_cleans_up() {
+        let directory = tempdir().unwrap();
+        let blob_path = directory.path().join("vault.blob");
+        init_blob(&blob_path, "standard-password", "hidden-password").unwrap();
+
+        let (volume_type, key, mut metadata) =
+            unlock_blob(&blob_path, "standard-password").unwrap();
+        add_file(
+            &blob_path,
+            volume_type,
+            &key,
+            &mut metadata,
+            "root.txt",
+            b"root contents",
+            "text/plain",
+        )
+        .unwrap();
+        add_file(
+            &blob_path,
+            volume_type,
+            &key,
+            &mut metadata,
+            "nested/deep.txt",
+            b"nested contents",
+            "text/plain",
+        )
+        .unwrap();
+
+        let (session, _) = Session::new(key, blob_path, metadata, volume_type, None, None);
+        let temp_path = create_vault_archive(&session, &key).unwrap();
+        let archive_path = temp_path.to_path_buf();
+        let archive_file = fs::File::open(&archive_path).unwrap();
+        let mut archive = ZipArchive::new(archive_file).unwrap();
+
+        assert_eq!(archive.len(), 2);
+
+        let mut root_contents = String::new();
+        archive
+            .by_name("root.txt")
+            .unwrap()
+            .read_to_string(&mut root_contents)
+            .unwrap();
+        assert_eq!(root_contents, "root contents");
+
+        let mut nested_contents = String::new();
+        archive
+            .by_name("nested/deep.txt")
+            .unwrap()
+            .read_to_string(&mut nested_contents)
+            .unwrap();
+        assert_eq!(nested_contents, "nested contents");
+
+        assert!(archive_path.exists());
+        drop(temp_path);
+        assert!(!archive_path.exists());
+    }
+
+    #[test]
+    fn archive_entry_paths_reject_traversal() {
+        assert_eq!(
+            archive_entry_path("documents/report.pdf"),
+            Some("documents/report.pdf".to_string())
+        );
+        assert!(archive_entry_path("../outside.txt").is_none());
+        assert!(archive_entry_path("documents/../outside.txt").is_none());
+        assert!(archive_entry_path("/absolute.txt").is_none());
+        assert!(archive_entry_path("documents\\outside.txt").is_none());
     }
 }

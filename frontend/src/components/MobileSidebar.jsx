@@ -10,6 +10,7 @@ import {
     LogOut,
     Upload,
     FolderPlus,
+    Download,
     Settings,
     ArrowLeft
 } from 'lucide-react';
@@ -29,6 +30,7 @@ const MobileSidebar = ({
     currentPath = '',
     onNavigate,
     onUploadStart,
+    onDownloadVault,
     onCompactStorage,
     className = '' 
 }) => {
@@ -71,6 +73,11 @@ const MobileSidebar = ({
 
     const handleCompactStorage = () => {
         onCompactStorage?.();
+        setIsOpen(false);
+    };
+
+    const handleDownloadVault = () => {
+        onDownloadVault?.();
         setIsOpen(false);
     };
 
@@ -131,6 +138,14 @@ const MobileSidebar = ({
                             >
                                 <FolderPlus className="h-4 w-4 mr-2 text-green-600" />
                                 Upload Folder
+                            </Button>
+                            <Button
+                                variant="outline"
+                                onClick={handleDownloadVault}
+                                className="w-full justify-start"
+                            >
+                                <Download className="h-4 w-4 mr-2 text-violet-600" />
+                                Download Vault
                             </Button>
                         </div>
                     </div>

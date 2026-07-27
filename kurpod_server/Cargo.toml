@@ -1,6 +1,6 @@
 [package]
 name = "kurpod_server"
-version = "0.1.5"
+version = "0.1.6"
 edition = "2021"
 description = "HTTP server implementation for the encrypted blob application"
 
@@ -18,9 +18,13 @@ encryption_core = { path = "../encryption_core" }
 axum = "0.7"
 axum-extra = { version = "0.9.3" }
 tokio = { version = "1.0", features = ["full"] }
+tokio-util = { version = "0.7", features = ["io"] }
 tower-http = { version = "0.5", features = ["fs", "cors"] }
 tower = { version = "0.4" }
 rust-embed = "8.0"
+futures-util = "0.3"
+tempfile = { workspace = true }
+zip = { version = "2.2", default-features = false, features = ["deflate"] }
 
 # CLI and utilities
 clap = { version = "4.5.39", features = ["derive"] }
