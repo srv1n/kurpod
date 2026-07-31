@@ -31,7 +31,6 @@ jobs:
     outputs:
       upload_url: ${{ steps.create_release.outputs.upload_url }}
       version: ${{ steps.get_version.outputs.version }}
-      release_created: ${{ steps.check_release.outputs.exists == 'false' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -157,7 +156,7 @@ jobs:
     name: Build and Upload (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
     needs: create-release
-    if: (needs.create-release.outputs.release_created == 'true' || needs.create-release.outputs.release_created == '') && (github.event_name == 'push' || inputs.job == 'all' || inputs.job == 'binaries-only')
+    if: github.event_name == 'push' || inputs.job == 'all' || inputs.job == 'binaries-only'
     strategy:
       fail-fast: false
       matrix:
@@ -186,12 +185,12 @@ jobs:
           
           # macOS builds
           - target: x86_64-apple-darwin
-            os: macos-13
+            os: macos-15-intel
             name: darwin-intel
             display_name: "macOS Intel"
             cross: false
           - target: aarch64-apple-darwin
-            os: macos-13
+            os: macos-15
             name: darwin-apple-silicon
             display_name: "macOS Apple Silicon"
             cross: false
@@ -450,7 +449,7 @@ jobs:
     name: Create Combined Checksums
     runs-on: ubuntu-22.04
     needs: [create-release, build-and-upload]
-    if: (needs.create-release.outputs.release_created == 'true' || needs.create-release.outputs.release_created == '') && (github.event_name == 'push' || inputs.job == 'all' || inputs.job == 'binaries-only')
+    if: github.event_name == 'push' || inputs.job == 'all' || inputs.job == 'binaries-only'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -581,7 +580,7 @@ jobs:
     name: Build and Push Docker Images
     runs-on: ubuntu-22.04
     needs: [create-release]
-    if: always() && ((github.event_name == 'push' && (needs.create-release.outputs.release_created == 'true' || needs.create-release.outputs.release_created == '')) || inputs.job == 'all' || inputs.job == 'docker-only')
+    if: always() && (github.event_name == 'push' || inputs.job == 'all' || inputs.job == 'docker-only')
     steps:
       - name: Checkout
         uses: actions/checkout@v4
